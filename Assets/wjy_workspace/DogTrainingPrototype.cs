@@ -11,8 +11,8 @@ namespace Wjy.DogTraining
     {
         public Renderer dogRenderer;
         [Header("DeepSeek configuration (fill in before Play)")]
-        public string model = "";
-        public string endpoint = "https://api.deepseek.com/chat/completions";
+        public string model = "DeepSeek-V4-Flash";
+        public string endpoint = "https://genai.comp.polyu.edu.hk/api/v1//chat/completions";
         [Tooltip("Saved in the scene. Clear the real key before publishing to GitHub.")] public string apiKey = "";
         private string status = "请填写 API Key、model 和 URL，然后选择训练口令。";
         private string lastPrompt = "尚未发送";
