@@ -308,8 +308,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   dogRenderer: {fileID: 1900000014}
-  model: DeepSeek-V4-Flash
-  endpoint: https://genai.comp.polyu.edu.hk/api/v1//chat/completions
+  model: deepseek-flash
+  endpoint: https://api.deepseek.com/chat/completions
   apiKey: 
 --- !u!1 &1900000011
 GameObject:

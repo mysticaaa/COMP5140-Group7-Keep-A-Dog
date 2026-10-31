@@ -11,8 +11,8 @@ namespace Wjy.DogTraining
     {
         public Renderer dogRenderer;
         [Header("DeepSeek configuration (fill in before Play)")]
-        public string model = "DeepSeek-V4-Flash";
-        public string endpoint = "https://genai.comp.polyu.edu.hk/api/v1//chat/completions";
+        public string model = "deepseek-flash";
+        public string endpoint = "https://api.deepseek.com/chat/completions";
         [Tooltip("Saved in the scene. Clear the real key before publishing to GitHub.")] public string apiKey = "";
         private string status = "请填写 API Key、model 和 URL，然后选择训练口令。";
         private string lastPrompt = "尚未发送";
@@ -31,7 +31,7 @@ namespace Wjy.DogTraining
             "你只能执行本轮指定的动作，或者拒绝；不得执行其他动作。" +
             "必须仅返回一个 JSON 对象，不要 Markdown，不要额外文字。" +
             "格式示例：{\"action\":\"sit\",\"reason\":\"我愿意坐下。\"}。" +
-            "action 只能是 crouch（蹲）、sit（坐）、spin（转圈）、refuse（这次不想执行）。" +
+            "action 只能是 crouch（趴下）、sit（坐下）、spin（转圈）、refuse（这次不想执行）。" +
             "reason 用简短中文描述小狗反应。refuse 不是接口错误，只用于你主动拒绝本次口令。";
 
         [Serializable] public sealed class Message
@@ -76,6 +76,9 @@ namespace Wjy.DogTraining
             fieldStyle = new GUIStyle(GUI.skin.textField) { font = chineseFont, fontSize = 17, fixedHeight = 33 };
         }
 
+        private readonly DeepSeekConnectionPanel connectionPanel = new DeepSeekConnectionPanel();
+        private Vector2 panelScroll;
+
         private void OnGUI()
         {
             SetupStyles();
@@ -83,22 +86,18 @@ namespace Wjy.DogTraining
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity,
                 new Vector3(Screen.width / 1280f, Screen.height / 800f, 1));
             GUILayout.BeginArea(new Rect(24, 24, 490, 752), GUI.skin.box);
+            panelScroll = GUILayout.BeginScrollView(panelScroll);
             GUILayout.Space(12);
             GUILayout.Label("AI 小狗训练 · 初始原型", titleStyle);
             GUILayout.Label("点击口令 → DeepSeek 理解并决策 → 球体变色", smallStyle);
             GUILayout.Space(14);
             bool previousEnabled = GUI.enabled;
             GUI.enabled = !busy;
-            GUILayout.Label("API Key（可在 Inspector 中预先填写）", smallStyle);
-            apiKey = GUILayout.PasswordField(apiKey, '*', fieldStyle);
-            GUILayout.Label("Model（填写你账户可用的模型名）", smallStyle);
-            model = GUILayout.TextField(model, fieldStyle);
-            GUILayout.Label("URL（完整的 Chat Completions 接口地址）", smallStyle);
-            endpoint = GUILayout.TextField(endpoint, fieldStyle);
+            connectionPanel.Draw(ref endpoint, ref model, ref apiKey, smallStyle, fieldStyle);
             GUILayout.Space(12);
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("蹲", buttonStyle)) Train("蹲", "crouch");
-            if (GUILayout.Button("坐", buttonStyle)) Train("坐", "sit");
+            if (GUILayout.Button("趴下", buttonStyle)) Train("趴下", "crouch");
+            if (GUILayout.Button("坐下", buttonStyle)) Train("坐下", "sit");
             if (GUILayout.Button("转圈", buttonStyle)) Train("转圈", "spin");
             GUILayout.EndHorizontal();
             if (GUILayout.Button("重置颜色和对话记录", GUILayout.Height(30))) ResetTraining();
@@ -114,8 +113,9 @@ namespace Wjy.DogTraining
             GUILayout.Label(lastResponse, bodyStyle);
             GUILayout.EndScrollView();
             GUILayout.FlexibleSpace();
-            GUILayout.Label("红：蹲    黄：坐    绿：转圈    黑：拒绝", bodyStyle);
+            GUILayout.Label("红：趴下    黄：坐下    绿：转圈    黑：拒绝", bodyStyle);
             GUILayout.Label("配置缺失或请求失败不改变颜色。此版仅用颜色表示行为。", smallStyle);
+            GUILayout.EndScrollView();
             GUILayout.EndArea();
             GUILayout.BeginArea(new Rect(750, 90, 480, 100));
             GUILayout.Label("小狗占位球", titleStyle);
@@ -212,8 +212,8 @@ namespace Wjy.DogTraining
         {
             switch (decision.action)
             {
-                case "crouch": dogMaterial.color = Color.red; actionLabel = "蹲（红色）"; break;
-                case "sit": dogMaterial.color = Color.yellow; actionLabel = "坐（黄色）"; break;
+                case "crouch": dogMaterial.color = Color.red; actionLabel = "趴下（红色）"; break;
+                case "sit": dogMaterial.color = Color.yellow; actionLabel = "坐下（黄色）"; break;
                 case "spin": dogMaterial.color = Color.green; actionLabel = "转圈（绿色）"; break;
                 case "refuse": dogMaterial.color = Color.black; actionLabel = "这次不想执行（黑色）"; break;
             }

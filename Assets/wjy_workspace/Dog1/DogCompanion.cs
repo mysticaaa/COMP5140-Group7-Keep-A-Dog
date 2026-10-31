@@ -13,6 +13,20 @@ namespace Wjy.DogTraining
         public float walkSpeed = 0.75f;
         public float approachInterval = 12f;
         public float resumeDelay = 3f;
+        private bool allowWandering = true;
+        public bool WanderingEnabled => allowWandering;
+        public void SetWanderingEnabled(bool enabled)
+        {
+            allowWandering = enabled;
+            moveAmount = 0f; approaching = false; chooseAfterPause = false;
+            target = transform.position;
+            if (!IsPerforming)
+            {
+                CurrentAction = enabled ? "wander" : "idle";
+                StateLabel = enabled ? "自由散步" : "原地等待训练";
+            }
+            if (enabled) ChooseDestination(false);
+        }
         public string StateLabel { get; private set; } = "自由散步";
         public bool IsPerforming { get; private set; }
         public string CurrentAction { get; private set; } = "wander";
@@ -133,6 +147,12 @@ namespace Wjy.DogTraining
                 moveAmount = Mathf.MoveTowards(moveAmount, 0f, dt * 5);
                 if (CurrentAction == "spin" && actionAge <= 2.2f)
                     transform.rotation = startSpin * Quaternion.Euler(0, 360f * Mathf.Clamp01(actionAge / 2.2f), 0);
+                return;
+            }
+            if (!allowWandering)
+            {
+                moveAmount = 0f;
+                StateLabel = "原地等待训练"; CurrentAction = "idle";
                 return;
             }
             if (Time.time >= nextApproach)
@@ -258,22 +278,24 @@ namespace Wjy.DogTraining
             if (action != "sit" && action != "crouch" && action != "spin" && action != "refuse")
                 throw new ArgumentException("Unsupported dog action.");
             IsPerforming = true; CurrentAction = action; actionAge = 0; startSpin = transform.rotation;
-            StateLabel = action == "sit" ? "坐下" : action == "crouch" ? "蹲低身体" : action == "spin" ? "原地转圈" : "不想执行，生气冒烟";
+            StateLabel = action == "sit" ? "坐下" : action == "crouch" ? "趴下" : action == "spin" ? "原地转圈" : "不想执行，生气冒烟";
             if (action == "refuse") { smoke.Play(); smoke.Emit(12); }
             float duration = action == "spin" ? 2.2f : action == "refuse" ? 1.7f : 1.1f;
             yield return new WaitForSeconds(duration);
             if (action == "refuse") smoke.Stop(true, ParticleSystemStopBehavior.StopEmitting);
-            StateLabel = "动作完成，3 秒后恢复散步";
+            StateLabel = allowWandering ? "动作完成，3 秒后恢复散步" : "动作完成，3 秒后原地待命";
             yield return new WaitForSeconds(resumeDelay);
-            IsPerforming = false; CurrentAction = "wander";
+            IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
+            if (!allowWandering) { moveAmount = 0f; StateLabel = "原地等待训练"; yield break; }
             pauseUntil = Time.time + 0.4f; nextApproach = Time.time + UnityEngine.Random.Range(7f, 12f);
             ChooseDestination(false);
         }
         public void ResetCompanion()
         {
-            IsPerforming = false; CurrentAction = "wander"; sitBlend = crouchBlend = angerBlend = 0;
+            IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
+            sitBlend = crouchBlend = angerBlend = 0;
             if (smoke != null) smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            ChooseDestination(false); pauseUntil = 0;
+            if (allowWandering) ChooseDestination(false); else SetWanderingEnabled(false); pauseUntil = 0;
         }
 
         private void BuildSmoke()

@@ -4,5 +4,10 @@
 EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
-  m_Scenes: []
-  m_configObjects: {}
+  m_Scenes:
+  - enabled: 1
+    path: Assets/Scenes/Dog2.unity
+    guid: 5007a4d23fcacee4c8d09e3dfa01f3fb
+  m_configObjects:
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: 6624592d45a7dbc4884c16e06c5c16e6, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: bee657201d7bad04c997440712d023e3, type: 2}
