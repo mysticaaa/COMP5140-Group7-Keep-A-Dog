@@ -8,6 +8,6 @@ License text: https://creativecommons.org/licenses/by/4.0/
 The author permits use, modification and redistribution with attribution.
 
 Included: rigged FBX, 1K PBR base color, normal and ambient occlusion maps.
-Changes: Unity material setup, normalized scale and orientation, runtime skeletal poses and locomotion.
+Changes: Unity material setup, normalized scale and orientation, runtime skeletal poses and locomotion, a derived mesh with pose-dependent blend shapes for joint deformation, and a low-poly skinned tail coat overlay derived from the FBX and coat texture.
 The source asset does not include motion-captured/training animation clips. Walk, crouch, sit, head shake and tail motion are procedural animations authored for this prototype.
 Retain this attribution when redistributing the model or this project. No author endorsement is implied.

@@ -68,7 +68,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.reply(200, {"text": "", "rms": rms}); return
             with model_lock:
                 segments, _ = model.transcribe(
-                    io.BytesIO(payload), language="zh", beam_size=5, vad_filter=True,
+                    io.BytesIO(payload), language="zh", beam_size=5, vad_filter=False,
                     condition_on_previous_text=False,
                 )
                 text = "".join(segment.text for segment in segments).strip()

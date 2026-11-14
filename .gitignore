@@ -107,3 +107,14 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Generated local editor configuration
+/.vsconfig
+/Assets/XR/Settings/OpenXR Editor Settings.asset
+/Assets/XR/Settings/OpenXR Editor Settings.asset.meta
+/Assets/XR/Settings.meta
+
+# Local developer secrets
+.env
+.env.*
+!.env.example

@@ -18,7 +18,10 @@ namespace Wjy.DogTraining
         public string Status { get; private set; } = "正在启动 OpenXR……";
         public bool SkipInitializationForValidation;
         public event System.Action ToggleSpeech;
+        public event System.Action BeginSpeech;
+        public event System.Action EndSpeech;
         public event System.Action CancelSpeech;
+        public System.Func<Vector3, Vector3, Vector3> LimitLocomotion { private get; set; }
         private Transform offset;
         private InputAction talk, cancel, headPosition, headRotation, leftStick, rightStick;
         private InputAction leftPosition, leftRotation, rightPosition, rightRotation;
@@ -212,6 +215,7 @@ namespace Wjy.DogTraining
             bool keyboardTalk = Keyboard.current != null && Keyboard.current.f8Key.wasPressedThisFrame;
             bool keyboardCancel = Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
             bool talkPressed = (talkHeld && !previousTalk) || keyboardTalk;
+            bool talkReleased = !talkHeld && previousTalk;
             bool cancelPressed = (cancelHeld && !previousCancel) || keyboardCancel;
             previousTalk = talkHeld;
             previousCancel = cancelHeld;
@@ -224,20 +228,33 @@ namespace Wjy.DogTraining
                 lastVoiceInput = "已收到取消键";
                 CancelSpeech?.Invoke();
             }
-            else if (talkPressed)
+            else if (keyboardTalk)
             {
                 talkPressCount++;
-                lastVoiceInput = "已收到" + (keyboardTalk ? " F8 " : " A ") + talkPressCount + "次";
-                Debug.Log("[Dog2 Input] " + lastVoiceInput);
+                lastVoiceInput = "已收到 F8 " + talkPressCount + " 次";
                 ToggleSpeech?.Invoke();
             }
+            else if (talkPressed && xrStarted)
+            {
+                talkPressCount++;
+                lastVoiceInput = "已收到 A " + talkPressCount + " 次";
+                BeginSpeech?.Invoke();
+            }
+            else if (talkReleased && xrStarted) EndSpeech?.Invoke();
             if (!xrStarted) return;
             Vector2 move = leftStick.ReadValue<Vector2>();
             if (leftDevice.isValid && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 fallbackMove)) move = fallbackMove;
             Vector3 forward = Vector3.ProjectOnPlane(HeadCamera.transform.forward, Vector3.up).normalized;
             Vector3 right = Vector3.Cross(Vector3.up, forward);
-            Origin.position += (forward * move.y + right * move.x) * (1.4f * Time.deltaTime);
-            Vector3 position = Origin.position; position.x = Mathf.Clamp(position.x, -8, 8); position.z = Mathf.Clamp(position.z, -8, 8); Origin.position = position;
+            Vector3 step = (forward * move.y + right * move.x) * (1.4f * Time.deltaTime);
+            Vector3 head = HeadCamera.transform.position;
+            if (step.sqrMagnitude > 0.000001f)
+            {
+                Vector3 position = head + step;
+                if (LimitLocomotion != null) position = LimitLocomotion(head, position);
+                else { position.x = Mathf.Clamp(position.x, -8, 8); position.z = Mathf.Clamp(position.z, -8, 8); }
+                Origin.position += position - head;
+            }
             float turn = rightStick.ReadValue<Vector2>().x;
             if (rightDevice.isValid && rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 fallbackTurn)) turn = fallbackTurn.x;
             if (Mathf.Abs(turn) < 0.3f) snapReleased = true;
@@ -247,6 +264,12 @@ namespace Wjy.DogTraining
             }
             leftTracked = SetHand(leftHand, leftPosition, leftRotation, leftDevice);
             rightTracked = SetHand(rightHand, rightPosition, rightRotation, rightDevice);
+        }
+        public bool TryGetHandPosition(bool right, out Vector3 position)
+        {
+            Transform hand = right ? rightHand : leftHand;
+            position = hand != null ? hand.position : Vector3.zero;
+            return xrStarted && (right ? rightTracked : leftTracked);
         }
         private static bool SetHand(Transform hand, InputAction position, InputAction rotation, UnityEngine.XR.InputDevice device)
         {

@@ -15,7 +15,7 @@ namespace Wjy.DogTraining
         public bool autoStartLocalService = true;
         public bool IsListening { get; private set; }
         public bool IsFinalizing { get; private set; }
-        public string Status { get; private set; } = "本地 Whisper 语音待机：A 开始，再按 A 停止并发送。";
+        public string Status { get; private set; } = "语音待机";
         public string LiveText { get; private set; } = "";
         public string ActiveMicrophone { get; private set; } = "尚未选择";
         public float InputLevel { get; private set; }
@@ -43,10 +43,11 @@ namespace Wjy.DogTraining
         public void StartListening()
         {
             if (IsListening || IsFinalizing) return;
-            if (Microphone.devices.Length == 0) { Fail("没有找到麦克风。请连接 Quest 麦克风，或在面板选择电脑麦克风测试。"); return; }
+            if (Microphone.devices.Length == 0) { Fail("没有找到麦克风。请检查设备连接和 Windows 麦克风权限。"); return; }
             if (!Uri.TryCreate(transcriptionEndpoint, UriKind.Absolute, out Uri address) ||
-                (address.Scheme != "http" && address.Scheme != "https"))
-            { Fail("语音识别 URL 必须是有效的 HTTP 地址。"); return; }
+                (address.Scheme != "https" && !(address.Scheme == "http" && address.IsLoopback)) ||
+                !string.IsNullOrEmpty(address.UserInfo))
+            { Fail("语音地址须为本机 HTTP 或 HTTPS 服务。"); return; }
             session++; LiveText = ""; InputLevel = 0;
             recordingDevice = string.IsNullOrWhiteSpace(microphoneDevice) ? null : microphoneDevice;
             if (recordingDevice == null)
@@ -62,7 +63,7 @@ namespace Wjy.DogTraining
                 recording = Microphone.Start(recordingDevice, false, MaxSeconds, 16000);
                 if (recording == null) { Fail("麦克风录音启动失败，请检查 Windows 桌面应用麦克风权限。"); return; }
                 startedAt = Time.realtimeSinceStartup; IsListening = true;
-                Status = "正在录音：" + ActiveMicrophone + "。再按 A 停止，识别后自动发送。";
+                Status = "正在录音 · " + ActiveMicrophone;
                 serviceReady = false; serviceError = ""; checkingService = true;
                 StartCoroutine(EnsureService(session));
             }
@@ -95,8 +96,10 @@ namespace Wjy.DogTraining
             IsListening = false; IsFinalizing = true;
             if (frames <= 0 || frames < clip.frequency / 5)
             { Destroy(clip); Fail("录音太短，本轮未发送。请开始录音后说一句完整的话。"); return; }
-            var samples = new float[clip.samples * clip.channels];
-            clip.GetData(samples, 0);
+            frames = Mathf.Min(frames, clip.samples);
+            var samples = new float[frames * clip.channels];
+            if (!clip.GetData(samples, 0))
+            { Destroy(clip); Fail("读取麦克风录音失败。"); return; }
             byte[] wav = EncodeWav(samples, frames, clip.channels, clip.frequency);
             Destroy(clip);
             Status = "录音结束，正在用本地 Whisper 转成中文……";
@@ -127,7 +130,7 @@ namespace Wjy.DogTraining
             {
                 using (var request = UnityWebRequest.Get(healthUrl))
                 {
-                    activeRequest = request; request.timeout = 2;
+                    activeRequest = request; request.timeout = 2; request.redirectLimit = 0;
                     yield return request.SendWebRequest();
                     activeRequest = null;
                     if (current != session) yield break;
@@ -162,10 +165,17 @@ namespace Wjy.DogTraining
                 string folder = Application.isEditor ?
                     Path.Combine(Application.dataPath, "wjy_workspace/Dog2/SpeechService") :
                     Path.GetFullPath(Path.Combine(Application.dataPath, "../SpeechService"));
+                if (!Application.isEditor && !File.Exists(Path.Combine(folder, "Runtime~/Scripts/python.exe")))
+                {
+                    string projectService = Path.GetFullPath(Path.Combine(Application.dataPath,
+                        "../../../Assets/wjy_workspace/Dog2/SpeechService"));
+                    if (File.Exists(Path.Combine(projectService, "Runtime~/Scripts/python.exe")))
+                        folder = projectService;
+                }
                 string python = Path.Combine(folder, "Runtime~/Scripts/python.exe");
                 string script = Path.Combine(folder, "server.py");
                 if (!File.Exists(python) || !File.Exists(script))
-                { serviceError = "本地 Whisper 尚未安装。请先运行 Assets/wjy_workspace/Dog2/SpeechService/Setup.ps1。"; return false; }
+                { serviceError = "本地 Whisper 尚未安装。请运行游戏旁 SpeechService/Setup.ps1。"; return false; }
                 var start = new System.Diagnostics.ProcessStartInfo(python, ((char)34) + script + ((char)34) + " --port " + port)
                 {
                     WorkingDirectory = folder, UseShellExecute = false, CreateNoWindow = true,
@@ -184,7 +194,7 @@ namespace Wjy.DogTraining
             using (var request = new UnityWebRequest(transcriptionEndpoint, "POST"))
             {
                 request.uploadHandler = new UploadHandlerRaw(wav);
-                request.downloadHandler = new DownloadHandlerBuffer(); request.timeout = 120;
+                request.downloadHandler = new DownloadHandlerBuffer(); request.timeout = 35; request.redirectLimit = 0;
                 request.SetRequestHeader("Content-Type", "audio/wav");
                 activeRequest = request;
                 yield return request.SendWebRequest(); activeRequest = null;
@@ -197,7 +207,7 @@ namespace Wjy.DogTraining
                 IsFinalizing = false;
                 if (string.IsNullOrWhiteSpace(LiveText))
                 { Status = "未识别到人声或文字，本轮未发送。请检查麦克风选择及输入音量。"; yield break; }
-                Status = "Whisper 已识别中文，正在发送给 DeepSeek。";
+                Status = "识别完成";
                 TranscriptReady?.Invoke(LiveText);
             }
         }

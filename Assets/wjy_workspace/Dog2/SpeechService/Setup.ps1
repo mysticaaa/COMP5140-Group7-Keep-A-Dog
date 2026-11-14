@@ -8,6 +8,7 @@ if (!(Test-Path -LiteralPath $python)) {
 }
 & $python -m pip install -r (Join-Path $serviceRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Speech dependency installation failed." }
+$env:HF_HUB_DISABLE_XET = "1"
 & $python (Join-Path $serviceRoot "server.py") --download-only
 if ($LASTEXITCODE -ne 0) { throw "Whisper model download failed." }
 Write-Host "Local speech is ready. Unity will start it when recording begins."
