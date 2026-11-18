@@ -71,6 +71,9 @@ public static class DogMotionValidation
         output = Environment.GetEnvironmentVariable("CITY_DOG_MOTION_CAPTURES");
         dog.SetWanderingEnabled(false);
         dog.SetPracticeArea(new Vector3(0.8f, 0, -2.9f), new Vector3(2.6f, .11f, -0.1f), new Vector3(1.5f, 0, .7f));
+        // The straight-walk contact order is measured with the dog already facing the path.
+        dog.transform.rotation = Quaternion.identity;
+        dog.ResetCompanion();
         var skeleton = new Dictionary<string, Transform>();
         foreach (var joint in dog.VisualRoot.GetComponentsInChildren<Transform>())
             if (joint.name.StartsWith("DEF-", StringComparison.Ordinal)) skeleton.Add(joint.name, joint);
@@ -152,6 +155,15 @@ public static class DogMotionValidation
         {
             CheckLimbLengths(upperLimbs, limbLengths);
             Require(paw[3].position.y - paw[1].position.y > .085f, "Right paw did not lift relative to left.");
+            Require(IsPlanted(dog, Paws[0]) && IsPlanted(dog, Paws[1]) && IsPlanted(dog, Paws[2]),
+                "Paw gesture lost its three-point support.");
+            Vector3 wrist = skeleton["DEF-front_paw.R"].position;
+            Vector3 forearm = wrist - skeleton["DEF-front_forearm.R"].position;
+            Vector3 toes = paw[3].position - wrist;
+            Vector3 pitchAxis = dog.transform.right;
+            float flex = Vector3.SignedAngle(Vector3.ProjectOnPlane(forearm, pitchAxis),
+                Vector3.ProjectOnPlane(toes, pitchAxis), pitchAxis);
+            Require(flex > 12f && flex < 60f, $"Raised wrist bent in the wrong direction: {flex:F1} degrees.");
         });
         yield return Pose(dog, "bow", () =>
         {
@@ -165,7 +177,9 @@ public static class DogMotionValidation
             Require(skeleton["DEF-pelvis"].position.y < .32f && skeleton["DEF-chest"].position.y < .32f, "Lie down did not lower the torso.");
         });
         dog.SetPracticeArea(new Vector3(1.4f, 0, -1.2f), new Vector3(3.15f, .11f, -.45f), new Vector3(2.5f, 0, 1.25f));
-        Camera.main.transform.position = new Vector3(0f, 1.65f, -4.8f);
+        var owner = new GameObject("Motion validation owner").transform;
+        owner.position = new Vector3(1.4f, 1.65f, -2.6f);
+        dog.user = owner;
         dog.StartCoroutine(dog.PerformAction("fetch_lollipop", .45f));
         Transform candy = GameObject.Find("Lollipop").transform;
         var muzzle = (Transform)typeof(DogCompanion).GetProperty("MuzzleAnchor", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(dog);
@@ -180,7 +194,8 @@ public static class DogMotionValidation
                 Capture(dog, "fetch");
             }
         }
-        Require(carried && dog.LastFetchSucceeded, "Pickup and return did not complete.");
+        Require(carried && dog.LastFetchSucceeded,
+            $"Pickup and return did not complete: carried={carried}, returned={dog.LastFetchSucceeded}, {dog.StateLabel}.");
         CheckLimbLengths(upperLimbs, limbLengths);
         foreach (var size in boneSizes) Require(size.Key.localScale == size.Value, "Bone scale changed: " + size.Key.name);
         dog.ShowKeypoints = true;

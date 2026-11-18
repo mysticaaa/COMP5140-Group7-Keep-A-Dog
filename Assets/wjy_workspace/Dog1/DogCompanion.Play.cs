@@ -124,9 +124,9 @@ namespace Wjy.DogTraining
                 Vector3.up * (-.035f * load + .024f * swing - .055f * absorb);
         }
 
-        private void ApplyWalkingTorso(bool walking)
+        private void ApplyWalkingTorso()
         {
-            if (!walking || CurrentAction == "spin") return;
+            if (locomotionBlend <= .003f || CurrentAction == "spin") return;
             float stride = gaitCycle * (2f * Mathf.PI);
             float weight = locomotionBlend * Mathf.Lerp(1f, .52f, Mathf.Abs(torsoTurn));
             float pelvisRoll = Mathf.Cos(stride - .7f) * Mathf.Lerp(3.2f, 1.9f, trotBlend) * weight;

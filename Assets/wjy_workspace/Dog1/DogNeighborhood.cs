@@ -5,35 +5,52 @@ using UnityEngine.Rendering;
 
 namespace Wjy.DogTraining
 {
-    public sealed class DogNeighborhood : IDisposable
+    public sealed partial class DogNeighborhood : IDisposable
     {
         private readonly Transform parent;
+        private readonly DogApartmentLayout apartment;
         private readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
         private readonly List<Rect> obstacles = new List<Rect>();
+        private readonly List<Rect> groundObstacles = new List<Rect>();
         private readonly List<Rect> dogPlayObstacles = new List<Rect>();
         private Transform root;
         private Rect playerSpace;
         private Rect dogSpace;
+        private Rect gardenSpace;
+        private DogApartmentLift lift;
         private Color sky;
 
-        public Vector3 PlayerStart => new Vector3(0f, 1.65f, -4.8f);
-        public Vector3 DogStart => new Vector3(1.55f, 0f, -1.2f);
-        public Vector3 FetchPosition => new Vector3(3.15f, 0.11f, -0.45f);
+        public Vector3 PlayerStart { get; private set; }
+        private bool UsesSceneApartment => apartment != null && root == apartment.transform;
+        public Vector3 DogStart => UsesSceneApartment ? apartment.DogStart : new Vector3(1.55f, 0f, -1.2f);
+        public Vector3 FetchPosition => UsesSceneApartment ? apartment.FetchPoint : new Vector3(3.15f, 0.11f, -0.45f);
         public Vector3 WalkDestination { get; private set; }
         public Vector3 WastePosition { get; private set; }
         public Vector3 ToyPosition { get; private set; }
         public Vector3 FoodPosition { get; private set; }
         public Vector3 WaterPosition { get; private set; }
         public float PlayerBoundary => playerSpace.xMax;
+        internal bool IsElevatorMoving => lift != null && lift.CarryingPlayer;
 
-        public DogNeighborhood(Transform parent) => this.parent = parent;
+        public DogNeighborhood(Transform parent, DogApartmentLayout apartment = null)
+        {
+            this.parent = parent;
+            this.apartment = apartment;
+        }
 
         public void Load(int location)
         {
             if (location < 0 || location > 2) throw new ArgumentOutOfRangeException(nameof(location));
             Dispose();
+            if (location == 0 && apartment != null)
+            {
+                apartment.gameObject.SetActive(true);
+                apartment.Apply(this);
+                return;
+            }
             root = new GameObject(location == 0 ? "City Apartment" : location == 1 ? "Neighborhood Park" : "Roof Terrace").transform;
             root.SetParent(parent, true);
+            PlayerStart = At(0f, 1.65f, location == 0 ? -3.21f : -4.8f);
             switch (location)
             {
                 case 0: BuildApartment(); break;
@@ -46,7 +63,9 @@ namespace Wjy.DogTraining
         public void ConfigureCamera(Camera camera)
         {
             if (camera == null) return;
-            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.clearFlags = UsesSceneApartment && RenderSettings.skybox != null
+                ? CameraClearFlags.Skybox
+                : CameraClearFlags.SolidColor;
             camera.backgroundColor = sky;
             camera.fieldOfView = 63f;
             camera.farClipPlane = 145f;
@@ -54,12 +73,25 @@ namespace Wjy.DogTraining
 
         public Vector3 ConstrainPlayerMotion(Vector3 prior, Vector3 proposed)
         {
-            proposed = ClampTo(playerSpace, proposed);
+            proposed = ClampPlayer(proposed);
             Vector3 slideX = new Vector3(proposed.x, proposed.y, prior.z);
-            if (HitsObstacle(slideX, 0.21f)) slideX.x = prior.x;
+            if (BlocksPlayer(slideX)) slideX.x = prior.x;
             proposed.x = slideX.x;
-            if (HitsObstacle(proposed, 0.21f)) proposed.z = prior.z;
-            return ClampTo(playerSpace, proposed);
+            if (BlocksPlayer(proposed)) proposed.z = prior.z;
+            return ClampPlayer(proposed);
+        }
+
+        private Vector3 ClampPlayer(Vector3 position)
+        {
+            if (lift != null)
+            {
+                if (lift.IsGroundLevel(position.y)) return ClampTo(gardenSpace, position);
+                if (position.z < playerSpace.yMin) return ClampTo(lift.UpperHall, position);
+            }
+            else if (gardenSpace.width > 0f && (position.z < playerSpace.yMin ||
+                position.x < playerSpace.xMin || position.x > playerSpace.xMax))
+                return ClampTo(gardenSpace, position);
+            return ClampTo(playerSpace, position);
         }
 
         public Vector3 ConstrainDogPosition(Vector3 proposed) => ClampTo(dogSpace, proposed);
@@ -82,7 +114,18 @@ namespace Wjy.DogTraining
             return position;
         }
 
-        private bool HitsObstacle(Vector3 point, float radius) => HitsObstacle(point, radius, obstacles);
+        private bool BlocksPlayer(Vector3 point)
+        {
+            if (lift != null)
+            {
+                if (lift.Blocks(point, PlayerRadius)) return true;
+                if (lift.IsGroundLevel(point.y)) return HitsObstacle(point, PlayerRadius, groundObstacles);
+            }
+            if (HitsObstacle(point, PlayerRadius, obstacles)) return true;
+            foreach (ApartmentDoor door in apartmentDoors)
+                if (door.Overlaps(point, door.Angle)) return true;
+            return false;
+        }
 
         private static bool HitsObstacle(Vector3 point, float radius, List<Rect> footprints)
         {
@@ -98,67 +141,6 @@ namespace Wjy.DogTraining
         private void AddDogPlayObstacle(Vector3 center, float width, float depth)
         {
             dogPlayObstacles.Add(new Rect(center.x - width * 0.5f, center.z - depth * 0.5f, width, depth));
-        }
-
-        private void BuildApartment()
-        {
-            playerSpace = Rect.MinMaxRect(-4.3f, -5.74f, 4.74f, 4.12f);
-            dogSpace = Rect.MinMaxRect(-2.87f, -5.25f, 3.73f, 3.12f);
-            FoodPosition = At(-2.1f, 0f, 0.4f);
-            WaterPosition = At(-2.55f, 0f, 0.4f);
-            ToyPosition = At(2.5f, 0f, 1.25f);
-            WastePosition = At(-1.75f, 0f, 2.5f);
-            WalkDestination = At(2.6f, 0f, 2.6f);
-            Lighting("DAA981", "F6C69A", "A7BED0", 1.16f);
-            Color wood = ColorOf("9D6950");
-            Color cream = ColorOf("E6CDB1");
-            Color trim = ColorOf("42352C");
-
-            Box("Oak slab", At(0, -0.105f, -0.65f), At(10.1f, 0.16f, 11.1f), wood, solid: true);
-            for (int i = 0; i < 32; i++)
-            {
-                Color board = wood * (0.92f + (i * 17 % 13) * 0.013f);
-                float z = -5.98f + i * 0.345f;
-                float seam = -2.6f + (i * 11 % 19) * 0.272f;
-                Box("Oak board", At((-5 + seam) * 0.5f, -0.035f, z), At(seam + 4.987f, 0.028f, 0.337f), board);
-                Box("Oak board", At((5 + seam) * 0.5f, -0.035f, z), At(4.987f - seam, 0.028f, 0.337f), board * 0.98f);
-            }
-            Box("Left plaster wall", At(-5.05f, 1.7f, -0.65f), At(0.21f, 3.4f, 11.3f), cream, solid: true);
-            Box("Right plaster wall", At(5.05f, 1.7f, -0.65f), At(0.21f, 3.4f, 11.3f), ColorOf("B99479"), solid: true);
-            Box("Window wall base", At(0, 0.51f, 4.85f), At(10.1f, 1.02f, 0.27f), cream, solid: true);
-            Box("Window wall header", At(0, 3.26f, 4.85f), At(10.1f, 0.3f, 0.27f), cream, solid: true);
-            Box("Window wall left", At(-3.93f, 2.04f, 4.85f), At(2.24f, 2.05f, 0.27f), cream, solid: true);
-            Box("Window wall right", At(4.12f, 2.04f, 4.85f), At(1.86f, 2.05f, 0.27f), cream, solid: true);
-            Box("Baseboard", At(0, 0.08f, 4.7f), At(10.06f, 0.16f, 0.1f), ColorOf("A4785A"));
-            Box("Baseboard", At(-4.92f, 0.08f, -0.65f), At(0.08f, 0.16f, 11.0f), ColorOf("A4785A"));
-            Box("Window ledge", At(0.18f, 1.025f, 4.78f), At(6.25f, 0.12f, 0.52f), ColorOf("B1805B"));
-            for (int i = 0; i < 5; i++)
-                Box("Window mullion", At(-2.81f + 1.5f * i, 2.06f, 4.82f), At(0.067f, 2.13f, 0.14f), trim);
-            Box("Window glazing bar", At(0.2f, 2.16f, 4.82f), At(6.06f, 0.045f, 0.13f), trim);
-
-            Skyline(23f, -15f, 31, true);
-            int pleats = 9;
-            for (int i = 0; i < pleats; i++)
-            {
-                Color drape = ColorOf("B5795E") * (i % 2 == 0 ? 1.04f : 0.91f);
-                Box("Linen curtain pleat", At(-2.94f + 0.069f * i, 1.62f, 4.66f - (i % 2) * 0.024f), At(0.11f, 2.87f, 0.13f), drape);
-                Box("Linen curtain pleat", At(2.74f + 0.069f * i, 1.62f, 4.66f - (i % 2) * 0.024f), At(0.11f, 2.87f, 0.13f), drape);
-            }
-            Box("Curtain rod", At(0.2f, 3.04f, 4.59f), At(6.50f, 0.045f, 0.045f), trim);
-
-            Rug(At(0.45f, -0.014f, 0.35f), At(5.25f, 0.03f, 4.44f), ColorOf("6C7F71"), ColorOf("B8AF8E"));
-            Sofa(-3.86f, 1.95f);
-            DogBed(At(-3.68f, 0f, -0.68f), ColorOf("BE9578"));
-            Kitchenette();
-            EntryDoor();
-            Bookshelf(4.38f, 3.61f);
-            PottedPlant(At(4.38f, 0f, 1.83f), 1.02f, ColorOf("B77759"));
-            PottedPlant(At(-3.9f, 0f, 3.62f), 0.74f, ColorOf("879685"));
-            PottedPlant(At(1.7f, 1.09f, 4.63f), 0.35f, ColorOf("976C58"));
-            Pendant(At(2.33f, 2.72f, 2.03f));
-            Picture(At(4.91f, 2.22f, 0.82f), 0.82f, ColorOf("D8A782"), true);
-            Picture(At(4.91f, 2.16f, -0.28f), 0.68f, ColorOf("9C9F7D"), true);
-            Picture(At(-3.83f, 1.98f, 4.69f), 0.60f, ColorOf("8D9A83"), false);
         }
 
         private void BuildPark()
@@ -310,27 +292,6 @@ namespace Wjy.DogTraining
             }
         }
 
-        private void Sofa(float x, float z)
-        {
-            Color fabric = ColorOf("868F7B");
-            Color frame = ColorOf("596956");
-            Box("Sofa main frame", At(x, 0.33f, z), At(1.36f, 0.42f, 2.61f), frame, solid: true, block: true);
-            Box("Sofa backrest", At(x - 0.52f, 0.78f, z), At(0.34f, 0.92f, 2.6f), fabric, At(0, 0, 6), solid: true);
-            for (int i = -1; i <= 1; i++)
-            {
-                Box("Sofa seat cushion", At(x + 0.15f, 0.58f, z + i * 0.76f), At(1.04f, 0.22f, 0.735f), fabric * 1.06f);
-                Box("Sofa back cushion", At(x - 0.31f, 0.93f, z + i * 0.76f), At(0.24f, 0.55f, 0.724f), fabric, At(0, 0, 7));
-            }
-            for (int side = -1; side <= 1; side += 2)
-            {
-                Box("Sofa armrest", At(x + 0.07f, 0.69f, z + side * 1.19f), At(1.21f, 0.32f, 0.24f), frame);
-                Box("Loose sofa cushion", At(x - 0.03f, 0.94f, z + side * 0.78f), At(0.22f, 0.47f, 0.47f),
-                    ColorOf(side < 0 ? "C67957" : "C5AB78"), At(side * 12f, 6f, 18f));
-                for (int foot = -1; foot <= 1; foot += 2)
-                    Box("Sofa oak foot", At(x + foot * 0.51f, 0.12f, z + side * 1.12f), At(0.12f, 0.23f, 0.12f), ColorOf("795942"));
-            }
-        }
-
         private void DogBed(Vector3 position, Color color)
         {
             AddDogPlayObstacle(position, 1.50f, 0.98f);
@@ -338,68 +299,6 @@ namespace Wjy.DogTraining
             Cylinder("Dog bed cushion", position + At(0, 0.155f, 0), At(1.25f, 0.031f, 0.80f), color);
             Shape(PrimitiveType.Capsule, "Dog bed bolsters", position + At(0, 0.175f, 0.33f),
                 At(0.18f, 0.62f, 0.18f), color * 1.06f, At(0, 0, 90f));
-        }
-
-        private void Bookshelf(float x, float z)
-        {
-            Color wood = ColorOf("89604A");
-            Box("Low credenza", At(x, 0.51f, z), At(1.03f, 1.02f, 1.64f), wood, solid: true, block: true);
-            Box("Credenza cap", At(x, 1.046f, z), At(1.12f, 0.07f, 1.72f), wood * 1.18f);
-            for (int i = -1; i <= 1; i++)
-            {
-                Box("Credenza door", At(x - 0.525f, 0.53f, z + i * 0.51f), At(0.041f, 0.83f, 0.47f), wood * 0.90f);
-                Box("Brass pull", At(x - 0.555f, 0.81f, z + i * 0.51f), At(0.038f, 0.04f, 0.12f), ColorOf("C59B67"));
-            }
-            for (int i = 0; i < 6; i++)
-                Box("Book", At(x + 0.09f, 1.19f + (i % 3) * 0.02f, z - 0.48f + i * 0.086f),
-                    At(0.28f, 0.24f + (i % 3) * 0.04f, 0.073f), ColorOf(i % 2 == 0 ? "ACA57C" : "8C9E8B"));
-            PottedPlant(At(x, 1.09f, z + 0.47f), 0.34f, ColorOf("B77C5F"));
-        }
-
-        private void Kitchenette()
-        {
-            Color cabinet = ColorOf("A2A18A");
-            Color oak = ColorOf("AA7251");
-            Color tile = ColorOf("D0B09B");
-            Box("Kitchen base", At(-4.59f, .49f, -2.48f), At(.76f, .98f, 2.36f), cabinet, solid: true, block: true);
-            Box("Kitchen worktop", At(-4.57f, 1.00f, -2.48f), At(.82f, .085f, 2.44f), oak);
-            for (int i = 0; i < 4; i++)
-            {
-                float z = -3.34f + i * .57f;
-                Box("Cabinet panel", At(-4.19f, .50f, z), At(.045f, .80f, .49f), cabinet * 1.06f);
-                Box("Cabinet brass pull", At(-4.15f, .79f, z), At(.045f, .035f, .15f), ColorOf("B18A61"));
-                Box("Upper cabinet door", At(-4.47f, 2.4f, z), At(.40f, .64f, .54f), cabinet * .88f);
-                Box("Upper cabinet brass pull", At(-4.24f, 2.19f, z), At(.045f, .04f, .15f), ColorOf("B18A61"));
-                for (int row = 0; row < 3; row++)
-                    Box("Backsplash terracotta tile", At(-4.938f, 1.20f + .286f * row, z),
-                        At(.027f, .272f, .552f), tile * (0.93f + ((i + row) % 5) * .026f));
-            }
-            Cylinder("Dog-food storage jar", At(-4.64f, 1.17f, -1.52f), At(.27f, .135f, .27f), ColorOf("D4AF83"));
-            Cylinder("Storage jar oak lid", At(-4.64f, 1.32f, -1.52f), At(.29f, .022f, .29f), oak);
-            PottedPlant(At(-4.56f, 1.05f, -2.04f), .28f, ColorOf("8C6C5B"));
-        }
-
-        private void EntryDoor()
-        {
-            Color frame = ColorOf("8F745F");
-            Color door = ColorOf("C6AD97");
-            Box("Entry lintel and frame", At(-4.01f, 1.27f, 4.69f), At(1.23f, 2.54f, .104f), frame);
-            Box("Entry door", At(-4.01f, 1.23f, 4.62f), At(1.083f, 2.45f, .07f), door);
-            Box("Upper recessed panel", At(-4.01f, 1.63f, 4.58f), At(.86f, 1.05f, .028f), door * .93f);
-            Box("Lower recessed panel", At(-4.01f, .57f, 4.58f), At(.86f, .69f, .028f), door * .92f);
-            Box("Door handle", At(-3.60f, 1.09f, 4.54f), At(.14f, .052f, .076f), ColorOf("AF875A"));
-            Box("Welcome mat", At(-4.11f, -.011f, 4.26f), At(1.11f, .032f, .53f), ColorOf("A18160"));
-        }
-
-        private void Picture(Vector3 position, float scale, Color accent, bool sideWall)
-        {
-            Vector3 rotation = sideWall ? At(0, 90, 0) : Vector3.zero;
-            Vector3 normal = sideWall ? Vector3.left : Vector3.back;
-            Box("Framed print", position, At(scale, scale * 1.25f, 0.045f), ColorOf("6E5548"), rotation);
-            Box("Mat board", position + normal * 0.024f, At(scale * 0.89f, scale * 1.11f, 0.01f), ColorOf("E7D7BD"), rotation);
-            Box("Print color field", position + normal * 0.032f, At(scale * 0.68f, scale * 0.87f, 0.006f), accent, rotation);
-            Shape(PrimitiveType.Sphere, "Print sun", position + normal * 0.039f + At(0, 0.12f, 0),
-                At(scale * 0.31f, scale * 0.31f, 0.008f), ColorOf("E9BD82"), rotation);
         }
 
         private void Pendant(Vector3 center)
@@ -610,14 +509,22 @@ namespace Wjy.DogTraining
         {
             if (root != null)
             {
+                if (UsesSceneApartment)
+                    foreach (ApartmentDoor door in apartmentDoors) door.Reset();
                 root.gameObject.SetActive(false);
-                UnityEngine.Object.Destroy(root.gameObject);
+                if (!UsesSceneApartment) UnityEngine.Object.Destroy(root.gameObject);
             }
             foreach (Material material in materials.Values)
                 UnityEngine.Object.Destroy(material);
             materials.Clear();
             obstacles.Clear();
+            groundObstacles.Clear();
             dogPlayObstacles.Clear();
+            gardenSpace = default;
+            lift = null;
+            apartmentDoors.Clear();
+            showerStreams = showerSplashes = null;
+            interactionHint = null;
             root = null;
         }
     }

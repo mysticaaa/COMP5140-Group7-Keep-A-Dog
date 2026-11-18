@@ -121,6 +121,14 @@ namespace Wjy.DogTraining
         }
 
         public string Name => "麦粒";
+        internal string BreedId => data.dogBreed;
+
+        internal void SelectBreed(DogBreed breed)
+        {
+            if (breed == null || data.dogBreed == breed.Id) return;
+            data.dogBreed = breed.Id;
+            Save();
+        }
         public string SaveError { get; private set; } = "";
         public int Level => GetLevel(data.totalExperience);
         public int MaxLevel => LevelThresholds.Length;
@@ -378,6 +386,7 @@ namespace Wjy.DogTraining
                 SaveData parsed = JsonUtility.FromJson<SaveData>(File.ReadAllText(file));
                 if (parsed == null || parsed.version != SaveData.CurrentVersion || parsed.cooldowns?.Length != ActionCount ||
                     parsed.chapterCounts?.Length != ActionCount || parsed.waste?.Length != LocationCount) return false;
+                if (DogBreed.Find(parsed.dogBreed) == null) parsed.dogBreed = null;
                 parsed.totalExperience = Mathf.Clamp(parsed.totalExperience, 0, LevelThresholds[MaxLevel - 1]);
                 parsed.bones = Mathf.Clamp(parsed.bones, 0, MaxBones);
                 parsed.chapterIndex = Mathf.Clamp(parsed.chapterIndex, 0, Chapters.Length - 1);
@@ -455,6 +464,7 @@ namespace Wjy.DogTraining
         [Serializable]
         private sealed class SaveData
         {
+            public string dogBreed;
             public const int CurrentVersion = 1;
             public int version;
             public int totalExperience;

@@ -9,6 +9,7 @@ namespace Wjy.DogTraining
     public sealed partial class Dog1Training : MonoBehaviour
     {
         public DogCompanion dog;
+        [SerializeField] private DogApartmentLayout apartment;
         public string model = "deepseek-flash";
         public string endpoint = "https://api.deepseek.com/chat/completions";
         [SerializeField] private string apiKey = "";
@@ -57,8 +58,9 @@ namespace Wjy.DogTraining
             sessionKey = Environment.GetEnvironmentVariable("KEEP_A_DOG_API_KEY") ?? "";
             Transform oldSphere = transform.Find("Dog Placeholder Sphere");
             if (oldSphere != null) oldSphere.gameObject.SetActive(false);
+            if (apartment != null) apartment.gameObject.SetActive(false);
             foreach (Light light in FindObjectsOfType<Light>()) light.enabled = false;
-            world = new DogNeighborhood(transform);
+            world = new DogNeighborhood(transform, apartment);
             world.Load((int)life.CurrentLocation);
             viewCamera = Camera.main;
             if (viewCamera != null)
@@ -70,10 +72,14 @@ namespace Wjy.DogTraining
             }
             if (dog == null)
             {
-                GameObject actor = new GameObject("麦粒 · German Shepherd");
-                actor.transform.SetParent(transform);
-                actor.transform.position = world.DogStart;
-                dog = actor.AddComponent<DogCompanion>();
+                DogBreed savedBreed = DogBreed.Find(life.BreedId) ?? DogBreed.Options[0];
+                dog = CreateCompanion(savedBreed);
+                if (!dog.Ready && !savedBreed.IsOriginal)
+                {
+                    Destroy(dog.gameObject);
+                    dog = CreateCompanion(DogBreed.Options[0]);
+                    choosingBreed = true;
+                }
             }
             PlaceActors();
             var bonus = life.ClaimDailyBonus();
@@ -87,6 +93,47 @@ namespace Wjy.DogTraining
         private static string SaveOverride(string folder, string file) =>
             Application.isEditor && !string.IsNullOrEmpty(folder) ? System.IO.Path.Combine(folder, file) : null;
 
+        private DogCompanion CreateCompanion(DogBreed breed, Transform pose = null)
+        {
+            var actor = new GameObject("麦粒 · " + breed.DisplayName);
+            actor.SetActive(false);
+            actor.transform.SetParent(transform);
+            if (pose != null) actor.transform.SetPositionAndRotation(pose.position, pose.rotation);
+            else actor.transform.position = world.DogStart;
+            DogCompanion companion = actor.AddComponent<DogCompanion>();
+            companion.SetBreedBeforeActivation(breed);
+            actor.SetActive(true);
+            return companion;
+        }
+
+        private bool ConfirmBreed(DogBreed breed)
+        {
+            if (dog == null || !dog.Ready || dog.Breed != breed)
+            {
+                bool replaceInPlace = started && dog != null;
+                DogCompanion next = CreateCompanion(breed, replaceInPlace ? dog.transform : null);
+                if (!next.Ready)
+                {
+                    Destroy(next.gameObject);
+                    breedError = "这只狗狗暂时无法加载，请选择其他犬种。";
+                    return false;
+                }
+                if (dog != null)
+                {
+                    next.user = dog.user;
+                    next.ShowKeypoints = dog.ShowKeypoints;
+                    next.SetWanderingEnabled(dog.WanderingEnabled);
+                    dog.gameObject.SetActive(false);
+                    Destroy(dog.gameObject);
+                }
+                dog = next;
+                if (replaceInPlace) ConfigureCompanion(keepPose: true);
+                else PlaceActors();
+            }
+            life.SelectBreed(breed);
+            return true;
+        }
+
         private void PlaceActors()
         {
             if (view != null)
@@ -94,9 +141,7 @@ namespace Wjy.DogTraining
                 world.ConfigureCamera(viewCamera);
                 view.Place(world.PlayerStart);
             }
-            dog.PositionLimit = world.ConstrainDogPosition;
-            dog.HasPlayClearance = world.HasDogPlayClearance;
-            dog.SetPracticeArea(world.DogStart, world.FetchPosition, world.ToyPosition);
+            ConfigureCompanion();
             RefreshWaste();
             nextAutonomy = Time.unscaledTime + 20f;
             nextBurst = Mathf.Max(nextBurst, Time.unscaledTime + 34f);
@@ -104,10 +149,24 @@ namespace Wjy.DogTraining
             if (pendingInvitation) ClearTrickReward();
         }
 
-        private bool Ready => started && !pause && !busy && !walking && dog != null && dog.Ready && !dog.IsPerforming;
+        private void ConfigureCompanion(bool keepPose = false)
+        {
+            dog.PositionLimit = world.ConstrainDogPosition;
+            dog.HasPlayClearance = world.HasDogPlayClearance;
+            if (keepPose) dog.ConfigurePracticeArea(world.FetchPosition, world.ToyPosition);
+            else dog.SetPracticeArea(world.DogStart, world.FetchPosition, world.ToyPosition);
+        }
+
+        private bool Ready => started && !pause && !choosingBreed && !busy && !walking &&
+            dog != null && dog.Ready && !dog.IsPerforming;
 
         private void Update()
         {
+            if (choosingBreed)
+            {
+                if (Input.GetKeyDown(KeyCode.Escape)) CloseBreedPicker();
+                return;
+            }
             ProcessVoiceButtons();
             if (started && !pause)
             {
@@ -135,6 +194,9 @@ namespace Wjy.DogTraining
             }
             if (view != null) view.InputSuspended = !started || pause;
             if (!started || pause) return;
+            if (viewCamera != null)
+                world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused, Input.GetKeyDown(KeyCode.E), Time.deltaTime);
+            if (view != null && world.IsElevatorMoving) view.InputSuspended = true;
             life.Tick(Time.deltaTime);
             if (walking && viewCamera != null)
             {
@@ -544,6 +606,7 @@ namespace Wjy.DogTraining
         internal bool WaitingForPlayer => Ready;
         internal void BeginPlay()
         {
+            if (string.IsNullOrEmpty(life.BreedId) && dog != null && dog.Ready) life.SelectBreed(dog.Breed);
             started = true;
             pause = false;
             Time.timeScale = 1f;
@@ -598,6 +661,7 @@ namespace Wjy.DogTraining
         private void OnDestroy()
         {
             if (speech != null) speech.TranscriptReady -= SubmitVoiceTranscript;
+            if (choosingBreed && started) Time.timeScale = timeScaleBeforeBreedPicker;
             if (pause) Time.timeScale = 1f;
             if (started) life?.Save();
             world?.Dispose();

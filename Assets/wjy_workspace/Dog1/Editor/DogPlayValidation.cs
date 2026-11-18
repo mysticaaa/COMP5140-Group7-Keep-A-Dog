@@ -121,7 +121,9 @@ public static class DogPlayValidation
         var bones = new List<Transform>(skeleton.Values) { dog.VisualRoot, dog.transform };
         var originalScales = bones.ConvertAll(bone => bone.localScale);
         dog.SetWanderingEnabled(false);
-        // Give the action clear floor without relocating the scene camera or depending on player input.
+        // Keep the recorded course independent of the furnished apartment's walkable area.
+        dog.PositionLimit = point => point;
+        dog.HasPlayClearance = (point, radius) => true;
         var owner = new GameObject("Play validation owner").transform;
         owner.position = Practice + Vector3.back * 3f + Vector3.up * 1.65f;
         dog.user = owner;
@@ -203,7 +205,6 @@ public static class DogPlayValidation
             Array.TrueForAll(blocked.PeakLift, lift => lift < .008f), "Blocked pounce moved the dog.");
 
         // Use a clear test route so scripted travel and guards are independent of prop layout.
-        dog.PositionLimit = point => point;
         owner.position = Practice + Vector3.forward * 8f + Vector3.up * 1.65f;
         clearance.SetValue(dog, new Func<Vector3, float, bool>((point, radius) => true));
         ResetPractice(dog);

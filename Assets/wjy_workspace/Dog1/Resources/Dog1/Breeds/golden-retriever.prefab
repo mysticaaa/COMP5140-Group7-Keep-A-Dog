@@ -1,0 +1,124 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &8014650283374444338
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 3388562633873323398}
+  m_Layer: 0
+  m_Name: golden-retriever
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &3388562633873323398
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 8014650283374444338}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 7451778917686914961}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &6980772991160567930
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 3388562633873323398}
+    m_Modifications:
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: -7529785756879114827, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 14239280a4a9d61408e2f4a151112157, type: 2}
+    - target: {fileID: -2578157896269810756, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: f7a09dde275857e499a394edadbec924, type: 2}
+    - target: {fileID: -2578157896269810756, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[1]
+      value: 
+      objectReference: {fileID: 2100000, guid: 207c70765091ea84dac71b1be4c30595, type: 2}
+    - target: {fileID: -843690650285049152, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: 507689504f1d4324c9519df7e25f4b48, type: 2}
+    - target: {fileID: -843690650285049152, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[1]
+      value: 
+      objectReference: {fileID: 2100000, guid: dd8f5041279cf7847b732c04a351e614, type: 2}
+    - target: {fileID: 919132149155446097, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Name
+      value: golden-retriever
+      objectReference: {fileID: 0}
+    - target: {fileID: 8951111326166316225, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: e9fd95f014f9268429971e0bc9c8746d, type: 2}
+    - target: {fileID: 8971391366991135812, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+      propertyPath: m_Materials.Array.data[0]
+      value: 
+      objectReference: {fileID: 2100000, guid: ad2918555a22ed54a89821f1d663b471, type: 2}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+--- !u!4 &7451778917686914961 stripped
+Transform:
+  m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: 920e6876ec0485742bc6ce0bb00a9038, type: 3}
+  m_PrefabInstance: {fileID: 6980772991160567930}
+  m_PrefabAsset: {fileID: 0}

@@ -171,10 +171,11 @@ namespace Wjy.DogTraining
             hudWidth = Screen.width / scale;
             float height = Screen.height / scale;
             GUI.matrix = Matrix4x4.Scale(new Vector3(scale, scale, 1));
-            if (!started || pause) DrawMenu(height);
+            if (choosingBreed || (!started && string.IsNullOrEmpty(life.BreedId))) DrawBreedPicker(height);
+            else if (!started || pause) DrawMenu(height);
             else DrawGame(height);
             string focused = GUI.GetNameOfFocusedControl();
-            IsTextEntryFocused = started && !pause && journalOpen &&
+            IsTextEntryFocused = started && !pause && !choosingBreed && journalOpen &&
                 (tab == 1 && focused == "Conversation" || tab == 3 && focused != null &&
                     focused.StartsWith("Model", System.StringComparison.Ordinal));
             GUI.matrix = previous;
@@ -216,6 +217,7 @@ namespace Wjy.DogTraining
             GUILayout.Space(14);
             if (GUILayout.Button(pause ? "回到游戏" : life.TotalExperience > 0 ? "继续生活" : "回家见麦粒", primary))
                 BeginPlay();
+            if (!pause && GUILayout.Button("选择犬种", button)) OpenBreedPicker();
             GUILayout.BeginHorizontal();
             if (GUILayout.Button(showControls ? "收起操作" : "操作说明", button)) showControls = !showControls;
             if (GUILayout.Button("保存并退出", button))
@@ -227,7 +229,7 @@ namespace Wjy.DogTraining
             if (showControls)
             {
                 GUILayout.Space(6);
-                GUILayout.Label("按住右键环顾，配合 WASD 移动。按住 V 说话，松开发送。Esc 暂停。", small);
+                GUILayout.Label("按住右键环顾，配合 WASD 移动。靠近门或花洒按 E 开关。按住 V 说话，松开发送。Esc 暂停。", small);
             }
             GUILayout.EndArea();
         }
@@ -243,6 +245,15 @@ namespace Wjy.DogTraining
 
             DrawChapter();
             DrawSceneFeedback(height);
+            string hint = world.InteractionHint;
+            if (!string.IsNullOrEmpty(hint))
+            {
+                float left = journalOpen ? Margin + JournalWidth : Margin;
+                float right = chapterOpen ? hudWidth - Margin - ChapterWidth : hudWidth - Margin;
+                var prompt = new Rect((left + right - 146f) * .5f, height * .62f, 146f, 35f);
+                Box(prompt, Dark, 7f);
+                GUI.Label(new Rect(prompt.x + 14f, prompt.y + 7f, 124f, 24f), hint, statusChip);
+            }
         }
 
         private void DrawJournal(float height)
@@ -626,9 +637,16 @@ namespace Wjy.DogTraining
             GUILayout.Space(9);
             Divider();
             GUILayout.Space(8);
+            GUILayout.Label("狗狗模型", heading);
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
+            if (GUILayout.Button("更换模型", button)) OpenBreedPicker();
+            GUI.enabled = enabled;
+            GUILayout.Space(9);
+            Divider();
+            GUILayout.Space(8);
             GUILayout.Label("语音与 Agent", heading);
             if (!string.IsNullOrWhiteSpace(VoiceStatus)) GUILayout.Label(VoiceStatus, small);
-            bool enabled = GUI.enabled;
             GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
             if (GUILayout.Button(useModel ? "停用可选模型" : "启用可选模型", button)) useModel = !useModel;
             if (useModel)

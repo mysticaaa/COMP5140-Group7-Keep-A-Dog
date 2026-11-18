@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Wjy.DogTraining
 {
-    // Skeletal animation authored for the CC BY German Shepherd rig (not a recolored primitive).
+    // Procedural skeletal animation shared by the companion rigs.
     public sealed partial class DogCompanion : MonoBehaviour
     {
         public Transform user;
@@ -69,7 +69,7 @@ namespace Wjy.DogTraining
         {
             foreach (Foot foot in feet)
             {
-                if (!string.Equals(foot.Tip.name, boneName, StringComparison.Ordinal)) continue;
+                if (foot.Tip != Bone(boneName)) continue;
                 planted = foot.Planted;
                 return true;
             }
@@ -88,7 +88,7 @@ namespace Wjy.DogTraining
             public bool Right;
             public bool Planted;
             public Vector3 Contact, SwingStart, Landing;
-            public float SwingProgress, SwingHeight, SwingFraction;
+            public float SwingProgress, SwingHeight, SwingFraction, WristPitch;
             public Vector3 SpinStart, PounceStart;
         }
         public Transform VisualRoot => visual;
@@ -98,6 +98,7 @@ namespace Wjy.DogTraining
         public Func<Vector3, Vector3> PositionLimit { private get; set; }
         public Vector3 ToyStation { private get; set; }
         private float pawBlend, bowBlend;
+        private float sitPhase, crouchPhase, pawPhase;
         private Vector3 lollipopHome = new Vector3(3.15f, 0.11f, -0.45f);
         private Transform fetchMat, carriedObject;
         public bool ShowKeypoints
@@ -134,10 +135,10 @@ namespace Wjy.DogTraining
         private void Awake()
         {
             if (user == null && Camera.main != null) user = Camera.main.transform;
-            var model = Resources.Load<GameObject>("Dog1/GermanShepherd");
-            if (model == null) { StateLabel = "德牧模型尚未导入，请等待 Unity 完成导入"; return; }
+            var model = breed.LoadModel();
+            if (model == null) { StateLabel = "狗狗模型尚未导入，请等待 Unity 完成导入"; return; }
             visual = Instantiate(model, transform).transform;
-            visual.name = "German Shepherd - rigged";
+            visual.name = breed.IsOriginal ? "German Shepherd - rigged" : breed.Id + " - rigged";
             foreach (Animator animator in visual.GetComponentsInChildren<Animator>()) animator.enabled = false;
             foreach (Animation animation in visual.GetComponentsInChildren<Animation>()) animation.enabled = false;
             foreach (Transform bone in visual.GetComponentsInChildren<Transform>())
@@ -146,6 +147,7 @@ namespace Wjy.DogTraining
                 bindRotations[bone] = bone.localRotation;
                 bindPositions[bone] = bone.localPosition;
             }
+            if (!breed.IsOriginal) BindImportedRig();
             head = Bone("DEF-head"); pelvis = Bone("DEF-pelvis");
             for (int index = 0; index < tailBones.Length; index++)
                 tailBones[index] = Bone("DEF-tail.0" + (index + 1));
@@ -158,12 +160,16 @@ namespace Wjy.DogTraining
                 if (renderer is SkinnedMeshRenderer skin)
                 {
                     skin.updateWhenOffscreen = true;
-                    DogCoatCorrectives corrective = DogCoatCorrectives.Attach(skin);
-                    if (corrective != null) coatCorrectives = corrective;
+                    if (breed.IsOriginal)
+                    {
+                        DogCoatCorrectives corrective = DogCoatCorrectives.Attach(skin);
+                        if (corrective != null) coatCorrectives = corrective;
+                    }
                 }
             }
             if (!hasBounds) { StateLabel = "模型没有可渲染网格"; return; }
-            float scale = 0.95f / Mathf.Max(bounds.size.y, 0.001f);
+            float height = breed.IsOriginal ? bounds.size.y : ImportedStandingHeight(bounds.size.y);
+            float scale = breed.Height / Mathf.Max(height, 0.001f);
             visual.localScale *= scale;
             // Normalize source forward from anatomy, independent of FBX export axes.
             if (head != null && pelvis != null)
@@ -178,8 +184,53 @@ namespace Wjy.DogTraining
                 if (!hasBounds) { bounds = renderer.bounds; hasBounds = true; }
                 else bounds.Encapsulate(renderer.bounds);
             }
-            visual.position += new Vector3(transform.position.x - bounds.center.x,
-                transform.position.y - bounds.min.y, transform.position.z - bounds.center.z);
+            Vector3 center = breed.IsOriginal ? bounds.center : ImportedPawCenter(bounds.center);
+            visual.position += new Vector3(transform.position.x - center.x,
+                breed.IsOriginal ? transform.position.y - bounds.min.y : 0f, transform.position.z - center.z);
+            if (breed.IsOriginal)
+            {
+                ApplyOriginalCoat(renderers);
+            }
+            foreach (Transform bone in visual.GetComponentsInChildren<Transform>())
+            {
+                bindRotations[bone] = bone.localRotation;
+                bindPositions[bone] = bone.localPosition;
+            }
+            float footHeight = float.PositiveInfinity;
+            foreach (string name in Paws)
+            {
+                Transform paw = Bone(name);
+                if (paw != null) footHeight = Mathf.Min(footHeight, paw.position.y);
+            }
+            if (!float.IsInfinity(footHeight)) visual.position += Vector3.up * (transform.position.y + 0.025f * bodyScale - footHeight);
+            bindPositions[visual] = visual.localPosition;
+            // Lateral sequence: left hind, left fore, right hind, right fore.
+            AddFoot(false, false, 0f);
+            AddFoot(true, false, 0.25f);
+            AddFoot(false, true, 0.5f);
+            AddFoot(true, true, 0.75f);
+            if (!breed.IsOriginal && (feet.Count != 4 || head == null || pelvis == null))
+            {
+                StateLabel = "狗狗骨骼缺少必需关节";
+                Debug.LogError(breed.Id + " is missing required joints for dog motion.", this);
+                return;
+            }
+            ResetFootContacts();
+            if (head != null)
+            {
+                MuzzleAnchor = new GameObject("Muzzle landmark").transform;
+                MuzzleAnchor.SetParent(head, false);
+                Vector3 offset = breed.IsOriginal ? transform.forward * 0.17f - Vector3.up * 0.055f : ImportedMuzzleOffset();
+                MuzzleAnchor.localPosition = head.InverseTransformVector(offset);
+            }
+            BuildSmoke();
+            nextApproach = Time.time + 6f;
+            ChooseDestination(false);
+            Ready = true;
+        }
+
+        private void ApplyOriginalCoat(Renderer[] renderers)
+        {
             coat = new Material(Shader.Find("Standard"));
             coat.name = "German Shepherd PBR Coat";
             coat.mainTexture = Resources.Load<Texture2D>("Dog1/mat_001_BaseColor");
@@ -194,32 +245,6 @@ namespace Wjy.DogTraining
                 renderer.sharedMaterials = materials;
                 if (renderer is SkinnedMeshRenderer skin) DogTailFur.Attach(skin, coat);
             }
-            foreach (Transform bone in visual.GetComponentsInChildren<Transform>())
-            {
-                bindRotations[bone] = bone.localRotation;
-                bindPositions[bone] = bone.localPosition;
-            }
-            float footHeight = float.PositiveInfinity;
-            foreach (string name in new[] { "DEF-front_toes.L", "DEF-front_toes.R", "DEF-hind_paw.L", "DEF-hind_paw.R" })
-                if (Bone(name) != null) footHeight = Mathf.Min(footHeight, Bone(name).position.y);
-            if (!float.IsInfinity(footHeight)) visual.position += Vector3.up * (0.025f - footHeight);
-            bindPositions[visual] = visual.localPosition;
-            // Lateral sequence: left hind, left fore, right hind, right fore.
-            AddFoot(false, false, 0f);
-            AddFoot(true, false, 0.25f);
-            AddFoot(false, true, 0.5f);
-            AddFoot(true, true, 0.75f);
-            ResetFootContacts();
-            if (head != null)
-            {
-                MuzzleAnchor = new GameObject("Muzzle landmark").transform;
-                MuzzleAnchor.SetParent(head, false);
-                MuzzleAnchor.localPosition = head.InverseTransformVector(transform.forward * 0.17f - Vector3.up * 0.055f);
-            }
-            BuildSmoke();
-            nextApproach = Time.time + 6f;
-            ChooseDestination(false);
-            Ready = true;
         }
 
         private Transform Bone(string name) { bones.TryGetValue(name, out Transform bone); return bone; }
@@ -235,7 +260,8 @@ namespace Wjy.DogTraining
             if (Array.Exists(chain, joint => joint == null)) return;
             feet.Add(new Foot { Tip = tip, Chain = chain, Neutral = transform.InverseTransformPoint(tip.position),
                 NeutralRotation = Quaternion.Inverse(transform.rotation) * tip.rotation,
-                StepOffset = stepOffset, Front = front, Right = right });
+                StepOffset = stepOffset, Front = front, Right = right,
+                WristPitch = front ? ForelegPitch(chain[0].position - chain[1].position, tip.position - chain[0].position) : 0f });
         }
 
         private void ResetFootContacts()
@@ -300,7 +326,7 @@ namespace Wjy.DogTraining
                 // Keep the support paws anchored once the dog settles into a standing or seated pose.
                 else if (CurrentAction == "invite" ? actionAge < .68f :
                     CurrentAction != "pet" && CurrentAction != "pounce" && CurrentAction != "sniff" &&
-                    (actionAge < 0.45f || CurrentAction == "refuse")) FaceUser(dt);
+                    (actionAge < (CurrentAction == "paw" ? .22f : .45f) || CurrentAction == "refuse")) FaceUser(dt);
                 return;
             }
             if (!allowWandering)
@@ -392,11 +418,12 @@ namespace Wjy.DogTraining
             float crouchTarget = IsPerforming && (CurrentAction == "crouch" || CurrentAction == "rest") ? 1f : 0f;
             float angerTarget = IsPerforming && CurrentAction == "refuse" && actionAge < 1.7f ? 1f : 0f;
             float dt = Time.deltaTime;
-            sitBlend = Blend(sitBlend, sitTarget, dt, 8f);
-            crouchBlend = Blend(crouchBlend, crouchTarget, dt, 9f);
+            sitBlend = EasePose(ref sitPhase, sitTarget, dt, .54f, .48f);
+            crouchBlend = EasePose(ref crouchPhase, crouchTarget, dt, .60f, .53f);
             angerBlend = Blend(angerBlend, angerTarget, dt, 12f);
             pickupBlend = Blend(pickupBlend, loweringToPickUp ? 1f : 0f, dt, 12f);
-            pawBlend = Blend(pawBlend, IsPerforming && CurrentAction == "paw" ? 1f : 0f, dt, 7f);
+            float pawTarget = IsPerforming && CurrentAction == "paw" ? 1f : 0f;
+            pawBlend = EasePose(ref pawPhase, pawTarget, dt, .53f, .46f);
             float bowTarget = CurrentAction == "invite"
                 ? EaseBetween(.68f, .95f, actionAge) * (1f - EaseBetween(1.55f, 1.88f, actionAge))
                 : CurrentAction == "bow" ? 1f : 0f;
@@ -405,7 +432,8 @@ namespace Wjy.DogTraining
                 ? 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, PetDuration, actionAge))
                 : 0f;
             petBlend = Blend(petBlend, petTarget, dt, 9f);
-            float pawLift = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.27f, 1f, pawBlend));
+            float pawLift = EaseBetween(.36f, 1f, pawPhase);
+            float pawWeight = EaseBetween(.16f, .72f, pawPhase);
 
             Vector3 travel = Vector3.ProjectOnPlane(transform.position - lastRootPosition, Vector3.up);
             float yaw = HeadingChange(lastRootForward, transform.forward);
@@ -431,11 +459,11 @@ namespace Wjy.DogTraining
             for (int side = 0; side < 2; side++)
             {
                 string suffix = side == 0 ? ".L" : ".R";
-                Bend("DEF-scapula" + suffix, crouchBlend * 8f + bowBlend * 9f + pickupBlend * 6f);
-                Bend("DEF-front_upper" + suffix, crouchBlend * 20f - sitBlend * 9f + bowBlend * 22f +
-                    pickupBlend * 9f + (side == 1 ? -pawLift * 32f : 0f));
+                Bend("DEF-scapula" + suffix, crouchBlend * 8f + bowBlend * 9f + pickupBlend * 6f -
+                    (side == 1 ? 7f * pawLift : 0f));
+                Bend("DEF-front_upper" + suffix, crouchBlend * 20f - sitBlend * 9f + bowBlend * 22f + pickupBlend * 9f);
                 Bend("DEF-front_forearm" + suffix, -crouchBlend * 52f - bowBlend * 31f - pickupBlend * 21f);
-                Bend("DEF-front_paw" + suffix, crouchBlend * 18f + sitBlend * 7f + (side == 1 ? -pawLift * 14f : 0f));
+                Bend("DEF-front_paw" + suffix, crouchBlend * 18f + sitBlend * 7f);
                 Bend("DEF-hind_thigh" + suffix, -sitBlend * 56f - crouchBlend * 30f - pickupBlend * 12f);
                 Bend("DEF-hind_shin" + suffix, sitBlend * 84f + crouchBlend * 58f + pickupBlend * 21f);
                 Bend("DEF-hind_hock" + suffix, -sitBlend * 34f - crouchBlend * 28f - pickupBlend * 10f);
@@ -447,14 +475,17 @@ namespace Wjy.DogTraining
             Bend("DEF-neck.01", -sitBlend * 5f - crouchBlend * 8f + pickupBlend * 24f + petBlend * 9f);
             Bend("DEF-neck.02", pickupBlend * 17f - petBlend * 3f);
             ApplyTurnPose(dt);
-            ApplyWalkingTorso(walking);
+            ApplyWalkingTorso();
+            ApplyGaitRoll(Bone("DEF-chest"), 4f * pawWeight);
             ApplyHeadPose(dt);
+            AddPlayPitch("DEF-head", 4f * pawWeight);
+            Yaw("DEF-head", 5f * pawLift);
             AnimateTail(dt);
             float bodyDrop = sitBlend * 0.194f + crouchBlend * 0.212f + bowBlend * 0.035f + pickupBlend * 0.11f;
             float carriage = Mathf.Lerp(.043f, .062f, trotBlend);
             float suspension = Mathf.Lerp(.0038f, .0115f, trotBlend);
             bodyDrop += (carriage + Mathf.Cos(gaitCycle * 4f * Mathf.PI) * suspension) * locomotionBlend;
-            visual.position += Vector3.down * bodyDrop - transform.right * (0.035f * pawBlend);
+            visual.position += (Vector3.down * bodyDrop - transform.right * (.038f * pawWeight)) * bodyScale;
             ApplyPlayPose();
             UpdateFootContacts(walking, travel, yaw, distance, pawLift, dt, previousTrotBlend, travelSpeed, turnRate);
             coatCorrectives?.Apply(sitBlend, crouchBlend, bowBlend, pawBlend, pickupBlend);
@@ -537,6 +568,12 @@ namespace Wjy.DogTraining
             return Mathf.Abs(result - target) < 0.003f ? target : result;
         }
 
+        private static float EasePose(ref float phase, float target, float dt, float enter, float exit)
+        {
+            phase = Mathf.MoveTowards(phase, target, dt / (target > phase ? enter : exit));
+            return Mathf.SmoothStep(0f, 1f, phase);
+        }
+
         private Vector3 FootGoal(Foot foot, float forwardOffset = 0f, float lift = 0f)
         {
             Vector3 goal = transform.TransformPoint(foot.Neutral + Vector3.forward * forwardOffset);
@@ -554,7 +591,7 @@ namespace Wjy.DogTraining
                 Mathf.InverseLerp(1.02f, 1.85f, travelSpeed)), trotBlend);
             strideLength = Mathf.Lerp(strideLength, .34f, Mathf.InverseLerp(28f, 125f, turnRate));
             // Shorter first steps keep the initial supports close while the dog gathers speed.
-            strideLength *= Mathf.Lerp(.72f, 1f, Mathf.SmoothStep(0f, 1f, gaitCycle));
+            strideLength *= Mathf.Lerp(.72f, 1f, Mathf.SmoothStep(0f, 1f, gaitCycle)) * bodyScale;
             float stance = Mathf.Lerp(StanceFraction, TrotStanceFraction, trotBlend);
             if (walking)
             {
@@ -601,7 +638,7 @@ namespace Wjy.DogTraining
                         foot.SwingProgress = 0f;
                         // Put touchdown ahead of neutral, leaving equal room on either end of stance.
                         foot.SwingFraction = replant ? Mathf.Min(1f - stance, .23f) : 1f - stance;
-                        foot.SwingHeight = Mathf.Lerp(foot.Front ? .048f : .042f, foot.Front ? .096f : .083f, trotBlend);
+                        foot.SwingHeight = Mathf.Lerp(foot.Front ? .048f : .042f, foot.Front ? .096f : .083f, trotBlend) * bodyScale;
                         float forecast = strideLength * (1f - stance * 0.5f) / distance;
                         float anticipatedYaw = Mathf.Clamp(yaw * forecast, -25f, 25f);
                         Vector3 advance = Vector3.ClampMagnitude(travel * forecast, Mathf.Lerp(.37f, .53f, trotBlend));
@@ -617,9 +654,12 @@ namespace Wjy.DogTraining
                 else if (posing)
                 {
                     float raised = foot.Front && foot.Right ? pawLift : 0f;
-                    float foreOffset = crouchBlend * 0.15f + bowBlend * 0.17f + raised * 0.10f + pickupBlend * 0.035f;
-                    float rearOffset = sitBlend * 0.075f + crouchBlend * 0.035f;
-                    Vector3 poseGoal = FootGoal(foot, foot.Front ? foreOffset : rearOffset, raised * 0.15f);
+                    float foreOffset = crouchBlend * .15f + bowBlend * .17f + pickupBlend * .035f;
+                    float rearOffset = sitBlend * .075f + crouchBlend * .035f;
+                    Vector3 poseGoal = FootGoal(foot, (foot.Front ? foreOffset + raised * .056f : rearOffset) * bodyScale,
+                        raised * .16f * bodyScale);
+                    if (pawBlend > .01f && raised == 0f && foot.Planted)
+                        poseGoal = foot.Contact;
                     foot.Contact = Vector3.MoveTowards(foot.Contact, poseGoal, dt * 1.3f);
                     foot.Planted = foot.Contact.y <= transform.position.y + PawGroundClearance + 0.005f;
                     foot.SwingStart = foot.Contact;
@@ -641,18 +681,17 @@ namespace Wjy.DogTraining
                     else
                         Bend("DEF-hind_shin" + side, sitBlend * 84f + crouchBlend * 58f + pickupBlend * 21f + swing * 24f);
                 }
-                PlaceFoot(foot, goal);
-                // The tip is the IK endpoint. Its orientation can level the toes without moving the contact.
                 Quaternion neutral = transform.rotation * foot.NeutralRotation;
-                float orientationLimit = foot.Planted ? 55f : 36f;
-                Quaternion leveled = Quaternion.RotateTowards(foot.Tip.rotation, neutral, orientationLimit);
-                if (!walking && foot.Front && foot.Right && pawLift > 0f)
+                if (!walking && foot.Front && foot.Right && pawLift > .001f)
                 {
-                    // As the offered wrist relaxes, keep the digits slightly down.
-                    Quaternion offered = Quaternion.AngleAxis(16f * pawLift, transform.right) * neutral;
-                    leveled = Quaternion.Slerp(leveled, offered, pawLift);
+                    PlaceOfferedPaw(foot, goal, pawLift);
+                    foot.Tip.rotation = Quaternion.Slerp(neutral, foot.Tip.rotation, EaseBetween(0f, .7f, pawLift));
+                    continue;
                 }
-                foot.Tip.rotation = leveled;
+                PlaceFoot(foot, goal);
+                // The tip is the IK endpoint, so leveling the digits does not move the contact.
+                float orientationLimit = foot.Planted ? 55f : 36f;
+                foot.Tip.rotation = Quaternion.RotateTowards(foot.Tip.rotation, neutral, orientationLimit);
             }
         }
 
@@ -749,7 +788,10 @@ namespace Wjy.DogTraining
             float t = foot.SwingProgress;
             float height = foot.SwingHeight;
             foot.Contact = Vector3.Lerp(foot.SwingStart, foot.Landing, Mathf.SmoothStep(0f, 1f, t));
-            foot.Contact.y += height * Mathf.Sin(Mathf.PI * t);
+            // Ease off the floor and back onto it, with the peak slightly before mid-swing.
+            float rise = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, .43f, t));
+            float fall = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.43f, 1f, t));
+            foot.Contact.y += height * rise * (1f - fall);
             foot.Planted = t >= 1f;
         }
 
@@ -867,6 +909,11 @@ namespace Wjy.DogTraining
         public void SetPracticeArea(Vector3 start, Vector3 fetch, Vector3 toy)
         {
             transform.SetPositionAndRotation(start, Quaternion.Euler(0, 205, 0));
+            ConfigurePracticeArea(fetch, toy);
+        }
+
+        internal void ConfigurePracticeArea(Vector3 fetch, Vector3 toy)
+        {
             ToyStation = toy;
             lollipopHome = fetch;
             EnableTrainingProps();
@@ -882,6 +929,7 @@ namespace Wjy.DogTraining
             followingWalk = false;
             IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
             sitBlend = crouchBlend = angerBlend = pickupBlend = pawBlend = bowBlend = 0f;
+            sitPhase = crouchPhase = pawPhase = 0f;
             petBlend = petLookYaw = tailWagPhase = tailCarriage = 0f;
             turnIntent = torsoTurn = 0f;
             tailWagAge = TailWagDuration;
