@@ -132,6 +132,12 @@ namespace Wjy.DogTraining
             float pelvisRoll = Mathf.Cos(stride - .7f) * Mathf.Lerp(3.2f, 1.9f, trotBlend) * weight;
             float pelvisYaw = Mathf.Sin(stride - .4f) * 2.2f * weight;
             float pitch = Mathf.Cos(stride * 2f - .65f) * weight;
+            // Shoulder blades follow each foreleg in turn as it reaches and then bears weight.
+            float leftPhase = stride - Mathf.Lerp(.25f, .5f, trotBlend) * 2f * Mathf.PI;
+            float rightPhase = stride - Mathf.Lerp(.75f, 1f, trotBlend) * 2f * Mathf.PI;
+            AddPlayPitch("DEF-scapula.L", -5f * weight * Mathf.Sin(leftPhase));
+            AddPlayPitch("DEF-scapula.R", -5f * weight * Mathf.Sin(rightPhase));
+            AddPlayPitch("DEF-neck.02", -.8f * pitch);
             AddPlayPitch("DEF-pelvis", pitch * Mathf.Lerp(1.6f, 2.5f, trotBlend));
             AddPlayPitch("DEF-spine.01", -pitch * .75f * trotBlend);
             AddPlayPitch("DEF-chest", -pitch * .95f * trotBlend);

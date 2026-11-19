@@ -195,9 +195,21 @@ namespace Wjy.DogTraining
             if (view != null) view.InputSuspended = !started || pause;
             if (!started || pause) return;
             if (viewCamera != null)
-                world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused, Input.GetKeyDown(KeyCode.E), Time.deltaTime);
+            {
+                DogCareAction? refill = world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused,
+                    Input.GetKeyDown(KeyCode.E), Time.deltaTime);
+                if (refill.HasValue) world.FillBowl(refill.Value);
+            }
             if (view != null && world.IsElevatorMoving) view.InputSuspended = true;
             life.Tick(Time.deltaTime);
+            if (Ready && !VoiceListening && !VoiceFinalizing && Time.time >= nextBowlCheck)
+            {
+                nextBowlCheck = Time.time + 2f;
+                if (world.HasServing(DogCareAction.Feed) && string.IsNullOrEmpty(life.GetBlockReason(DogCareAction.Feed)))
+                    StartCare(DogCareAction.Feed);
+                else if (world.HasServing(DogCareAction.Water) && string.IsNullOrEmpty(life.GetBlockReason(DogCareAction.Water)))
+                    StartCare(DogCareAction.Water);
+            }
             if (walking && viewCamera != null)
             {
                 Vector3 player = viewCamera.transform.position;
@@ -217,6 +229,22 @@ namespace Wjy.DogTraining
             }
         }
 
+        private bool nextRestInHouse = true;
+        private float nextBowlCheck;
+        private Transform HomeRestSpot(bool house) =>
+            life.CurrentLocation == DogLocation.Apartment && apartment != null ? apartment.RestSpot(house) : null;
+
+        private IEnumerator RestWithFurniture(bool house)
+        {
+            Transform spot = HomeRestSpot(house);
+            if (spot == null) yield return dog.PerformAction("rest", .35f);
+            else
+            {
+                nextRestInHouse = !house;
+                yield return dog.RestAt(spot, house, HomeRestSpot(false));
+            }
+        }
+
         private IEnumerator Autonomy()
         {
             if (life.Satiety < 30 || life.Hydration < 30)
@@ -225,10 +253,10 @@ namespace Wjy.DogTraining
                 reply = thirsty ? "麦粒在水碗边徘徊。" : "麦粒朝饭碗闻了闻，又回头看你。";
                 yield return dog.VisitStation(thirsty ? world.WaterPosition : world.FoodPosition, "检查碗里还有没有", false);
             }
-            else if (life.Energy < 30 || life.Mood < 22)
+            else if (life.Energy < 30 || life.Mood < 22 || (HomeRestSpot(nextRestInHouse) != null && UnityEngine.Random.value < .25f))
             {
                 reply = life.Energy < 30 ? "麦粒自己趴下，想歇一歇。" : "麦粒今天有点没精神，先在你附近安静一会儿。";
-                yield return dog.PerformAction("rest", 1f);
+                yield return RestWithFurniture(nextRestInHouse);
             }
             else if (Time.unscaledTime < sniffAfterPlayUntil)
             {
@@ -364,9 +392,11 @@ namespace Wjy.DogTraining
                 case DogCareAction.Feed:
                 case DogCareAction.Water:
                     bool food = action == DogCareAction.Feed;
+                    world.FillBowl(action);
                     reply = food ? "你添了一份狗粮，麦粒小跑去饭碗。" : "你换了一碗干净的水，麦粒闻声跑来。";
                     yield return dog.VisitStation(food ? world.FoodPosition : world.WaterPosition, food ? "去吃饭" : "去喝水", true);
                     success = dog.LastActivitySucceeded;
+                    if (success) world.EmptyBowl(action);
                     break;
                 case DogCareAction.Clean:
                     reply = "用拾便袋清理地面，再把袋子放进垃圾桶。";
@@ -379,7 +409,10 @@ namespace Wjy.DogTraining
                     break;
                 case DogCareAction.Rest:
                     reply = "麦粒找了个舒服的姿势，趴下来歇气。";
-                    yield return dog.PerformAction("rest", 0.35f);
+                    bool house = nextRestInHouse;
+                    bool usesFurniture = HomeRestSpot(house) != null;
+                    yield return RestWithFurniture(house);
+                    success = !usesFurniture || dog.LastActivitySucceeded;
                     break;
             }
             FinishCare(action, success);

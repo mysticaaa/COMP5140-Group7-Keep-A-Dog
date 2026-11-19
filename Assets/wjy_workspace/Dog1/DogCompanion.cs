@@ -58,7 +58,8 @@ namespace Wjy.DogTraining
         private readonly List<Foot> feet = new List<Foot>(4);
         private Vector3 lastRootPosition, lastRootForward;
         private float gaitCycle, locomotionBlend, stillTime, groundHeight;
-        private float walkVelocity, trotBlend;
+        private float walkVelocity, strideAcceleration, trotBlend, restSpotCrouch;
+        private float strideScale = 1f;
         private int lastWalkFrame = -10;
         private bool trotting;
         private bool gaitActive;
@@ -258,6 +259,11 @@ namespace Wjy.DogTraining
                 ? new[] { Bone("DEF-front_paw" + side), Bone("DEF-front_forearm" + side), Bone("DEF-front_upper" + side) }
                 : new[] { Bone("DEF-hind_hock" + side), Bone("DEF-hind_shin" + side), Bone("DEF-hind_thigh" + side) };
             if (Array.Exists(chain, joint => joint == null)) return;
+            if (front && right)
+            {
+                float standingReach = chain[2].position.y - tip.position.y;
+                strideScale = Mathf.Clamp(standingReach / .48f, .5f * bodyScale, bodyScale);
+            }
             feet.Add(new Foot { Tip = tip, Chain = chain, Neutral = transform.InverseTransformPoint(tip.position),
                 NeutralRotation = Quaternion.Inverse(transform.rotation) * tip.rotation,
                 StepOffset = stepOffset, Front = front, Right = right,
@@ -267,7 +273,7 @@ namespace Wjy.DogTraining
         private void ResetFootContacts()
         {
             CancelQuietStance();
-            walkVelocity = trotBlend = 0f;
+            walkVelocity = strideAcceleration = trotBlend = 0f;
             lastWalkFrame = -10;
             trotting = false;
             lastRootPosition = transform.position;
@@ -316,7 +322,7 @@ namespace Wjy.DogTraining
             float dt = Time.deltaTime;
             if (IsPerforming)
             {
-                if (CurrentAction == "fetch_lollipop" || CurrentAction == "fetch_toy" || CurrentAction == "come" || CurrentAction == "activity") return;
+                if (CurrentAction == "restSpot" || CurrentAction == "fetch_lollipop" || CurrentAction == "fetch_toy" || CurrentAction == "come" || CurrentAction == "activity") return;
                 actionAge += dt;
                 if (CurrentAction == "burst") UpdatePlayMotion();
                 else if (CurrentAction == "spin")
@@ -396,14 +402,15 @@ namespace Wjy.DogTraining
             offset.y = 0f;
             if (offset.sqrMagnitude < 0.0001f) return;
 
-            if (Time.frameCount - lastWalkFrame > 1) walkVelocity = 0f;
+            if (Time.frameCount - lastWalkFrame > 1) walkVelocity = strideAcceleration = 0f;
             lastWalkFrame = Time.frameCount;
             float angle = Mathf.Abs(TurnTowards(destination, dt));
             float alignment = Vector3.Dot(transform.forward, offset.normalized);
             float corner = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(12f, 86f, angle));
             float stopSpeed = Mathf.Sqrt(2f * 2.5f * Mathf.Max(0f, offset.magnitude - .009f));
             float requested = Mathf.Min(speed * corner, stopSpeed);
-            walkVelocity = Mathf.MoveTowards(walkVelocity, requested, dt * (walkVelocity < requested ? 2.35f : 4.3f));
+            walkVelocity = Mathf.SmoothDamp(walkVelocity, requested, ref strideAcceleration,
+                requested > walkVelocity ? .20f : .13f, Mathf.Infinity, dt);
             float stride = walkVelocity * dt * Mathf.InverseLerp(.46f, .955f, alignment);
             stride = Mathf.Min(stride, Mathf.Max(0f, Vector3.Dot(offset, transform.forward)));
             transform.position = Limit(transform.position + transform.forward * stride);
@@ -418,6 +425,7 @@ namespace Wjy.DogTraining
             float crouchTarget = IsPerforming && (CurrentAction == "crouch" || CurrentAction == "rest") ? 1f : 0f;
             float angerTarget = IsPerforming && CurrentAction == "refuse" && actionAge < 1.7f ? 1f : 0f;
             float dt = Time.deltaTime;
+            if (IsPerforming && CurrentAction == "restSpot") crouchTarget = restSpotCrouch;
             sitBlend = EasePose(ref sitPhase, sitTarget, dt, .54f, .48f);
             crouchBlend = EasePose(ref crouchPhase, crouchTarget, dt, .60f, .53f);
             angerBlend = Blend(angerBlend, angerTarget, dt, 12f);
@@ -448,7 +456,7 @@ namespace Wjy.DogTraining
             groundHeight = transform.position.y;
             float distance = travel.magnitude + 0.32f * Mathf.Abs(yaw) * Mathf.Deg2Rad;
             float walkWeight = 1f - Mathf.Max(Mathf.Max(sitBlend, crouchBlend), Mathf.Max(pawBlend, bowBlend));
-            bool walking = dt > 0f && distance / dt > 0.015f && walkWeight > 0.55f;
+            bool walking = dt > 0f && distance / dt > 0.015f && (walkWeight > 0.55f || CurrentAction == "restSpot");
             locomotionBlend = Blend(locomotionBlend, walking ? 1f : 0f, dt, 9f);
             float previousTrotBlend = trotBlend;
             bool turningInPlace = CurrentAction == "spin" || !walking;
@@ -471,18 +479,23 @@ namespace Wjy.DogTraining
             Bend("DEF-pelvis", -sitBlend * 35f + bowBlend * 17f);
             Bend("DEF-spine.01", -sitBlend * 7f + bowBlend * 20f);
             Bend("DEF-spine.02", sitBlend * 7f + bowBlend * 10f + pickupBlend * 7f);
-            Bend("DEF-chest", sitBlend * 21f + bowBlend * 5f + pickupBlend * 8f);
-            Bend("DEF-neck.01", -sitBlend * 5f - crouchBlend * 8f + pickupBlend * 24f + petBlend * 9f);
+            float chestSettle = EaseBetween(.12f, .94f, sitBlend);
+            float neckSettle = EaseBetween(.19f, 1f, crouchBlend);
+            Bend("DEF-chest", chestSettle * 21f + bowBlend * 5f + pickupBlend * 8f);
+            Bend("DEF-neck.01", -chestSettle * 5f - neckSettle * 8f + pickupBlend * 24f + petBlend * 9f);
             Bend("DEF-neck.02", pickupBlend * 17f - petBlend * 3f);
             ApplyTurnPose(dt);
             ApplyWalkingTorso();
             ApplyGaitRoll(Bone("DEF-chest"), 4f * pawWeight);
             ApplyHeadPose(dt);
+            float breath = Mathf.Sin(Time.time * 2.35f) * (1f - locomotionBlend) * (1f - pickupBlend);
+            AddPlayPitch("DEF-chest", breath * .85f);
+            AddPlayPitch("DEF-neck.01", -breath * .65f);
             AddPlayPitch("DEF-head", 4f * pawWeight);
             Yaw("DEF-head", 5f * pawLift);
             AnimateTail(dt);
             float bodyDrop = sitBlend * 0.194f + crouchBlend * 0.212f + bowBlend * 0.035f + pickupBlend * 0.11f;
-            float carriage = Mathf.Lerp(.043f, .062f, trotBlend);
+            float carriage = Mathf.Lerp(.019f, .033f, trotBlend);
             float suspension = Mathf.Lerp(.0038f, .0115f, trotBlend);
             bodyDrop += (carriage + Mathf.Cos(gaitCycle * 4f * Mathf.PI) * suspension) * locomotionBlend;
             visual.position += (Vector3.down * bodyDrop - transform.right * (.038f * pawWeight)) * bodyScale;
@@ -591,7 +604,7 @@ namespace Wjy.DogTraining
                 Mathf.InverseLerp(1.02f, 1.85f, travelSpeed)), trotBlend);
             strideLength = Mathf.Lerp(strideLength, .34f, Mathf.InverseLerp(28f, 125f, turnRate));
             // Shorter first steps keep the initial supports close while the dog gathers speed.
-            strideLength *= Mathf.Lerp(.72f, 1f, Mathf.SmoothStep(0f, 1f, gaitCycle)) * bodyScale;
+            strideLength *= Mathf.Lerp(.72f, 1f, Mathf.SmoothStep(0f, 1f, gaitCycle)) * strideScale;
             float stance = Mathf.Lerp(StanceFraction, TrotStanceFraction, trotBlend);
             if (walking)
             {
@@ -688,7 +701,18 @@ namespace Wjy.DogTraining
                     foot.Tip.rotation = Quaternion.Slerp(neutral, foot.Tip.rotation, EaseBetween(0f, .7f, pawLift));
                     continue;
                 }
-                PlaceFoot(foot, goal);
+                if (walking && foot.Front && !foot.Planted && !spinning)
+                {
+                    float swing = Mathf.Sin(Mathf.PI * foot.SwingProgress);
+                    PlaceFoot(foot, goal);
+                    for (int i = 0; i < foot.Chain.Length; i++)
+                        poseJointRotations[i] = foot.Chain[i].localRotation;
+                    PlaceOfferedPaw(foot, goal, .48f * swing * swing);
+                    for (int i = 0; i < foot.Chain.Length; i++)
+                        foot.Chain[i].localRotation = Quaternion.Slerp(poseJointRotations[i],
+                            foot.Chain[i].localRotation, swing * swing);
+                }
+                else PlaceFoot(foot, goal);
                 // The tip is the IK endpoint, so leveling the digits does not move the contact.
                 float orientationLimit = foot.Planted ? 55f : 36f;
                 foot.Tip.rotation = Quaternion.RotateTowards(foot.Tip.rotation, neutral, orientationLimit);
@@ -872,6 +896,81 @@ namespace Wjy.DogTraining
             if (!allowWandering) { StateLabel = "原地等待训练"; yield break; }
             pauseUntil = Time.time + 0.4f; nextApproach = Time.time + UnityEngine.Random.Range(7f, 12f);
             ChooseDestination(false);
+        }
+
+        internal IEnumerator RestAt(Transform spot, bool house, Transform cushion)
+        {
+            if (!Ready || IsPerforming || spot == null) yield break;
+            int version = ++actionVersion;
+            IsPerforming = true;
+            CurrentAction = "restSpot";
+            LastActivitySucceeded = false;
+            restSpotCrouch = 0f;
+            StateLabel = house ? "走向狗窝" : "走向软垫";
+            Vector3 approach = Limit(spot.TransformPoint(Vector3.back * 1.12f));
+            if (house && cushion != null)
+            {
+                Vector3 route = Vector3.ProjectOnPlane(approach - transform.position, Vector3.up);
+                Vector3 toPad = Vector3.ProjectOnPlane(cushion.position - transform.position, Vector3.up);
+                float along = Vector3.Dot(toPad, route) / Mathf.Max(.001f, route.sqrMagnitude);
+                if (along > 0f && along < 1f && (toPad - route * along).magnitude < 1.05f)
+                {
+                    float side = Vector3.Dot(-toPad, spot.right) >= 0f ? 1f : -1f;
+                    Vector3 lane = cushion.position + spot.right * (side * 1.22f);
+                    yield return Travel(lane - spot.forward * .80f, false, version);
+                    if (version != actionVersion) yield break;
+                    yield return Travel(lane + spot.forward * .87f, false, version);
+                    if (version != actionVersion) yield break;
+                }
+            }
+            yield return Travel(approach, false, version);
+            if (version != actionVersion) yield break;
+            if (FlatDistance(transform.position, approach) < .18f)
+            {
+                Vector3 outside = transform.position;
+                Vector3 inside = spot.TransformPoint(new Vector3(0f, house ? .122f : .095f, house ? -.18f * bodyScale : 0f));
+                Vector3 facing = house ? outside - inside : inside - outside;
+                facing.y = 0f;
+                for (float age = 0; age < 3f && version == actionVersion; age += Time.deltaTime)
+                {
+                    if (Mathf.Abs(TurnTowards(transform.position + facing, Time.deltaTime)) < 2f) break;
+                    yield return null;
+                }
+                if (version != actionVersion) yield break;
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    float duration = Mathf.Max(1f, FlatDistance(outside, inside) / .58f);
+                    for (float age = 0; age < duration && version == actionVersion; age += Time.deltaTime)
+                    {
+                        float t = Mathf.SmoothStep(0f, 1f, age / duration);
+                        if (pass == 1) t = 1f - t;
+                        Vector3 point = Vector3.Lerp(outside, inside, t);
+                        point.y = Mathf.Lerp(outside.y, inside.y, EaseBetween(.05f, .6f, t));
+                        if (!house) point.y += Mathf.Sin(Mathf.PI * t) * .14f;
+                        transform.position = point;
+                        restSpotCrouch = house ? .75f * EaseBetween(0f, .35f, t) : 0f;
+                        yield return null;
+                    }
+                    if (version != actionVersion) yield break;
+                    if (pass == 0)
+                    {
+                        transform.position = inside;
+                        StateLabel = house ? "在狗窝里趴着休息" : "趴在软垫上休息";
+                        restSpotCrouch = 1f;
+                        yield return new WaitForSeconds(5f);
+                        if (version != actionVersion) yield break;
+                        restSpotCrouch = house ? .75f : 0f;
+                        StateLabel = "起身回到客厅";
+                        yield return new WaitForSeconds(.55f);
+                        if (version != actionVersion) yield break;
+                    }
+                }
+                transform.position = outside;
+                LastActivitySucceeded = true;
+            }
+            restSpotCrouch = 0f;
+            IsPerforming = false;
+            SetWanderingEnabled(allowWandering);
         }
 
         public IEnumerator VisitStation(Vector3 station, string label, bool lowerHead)

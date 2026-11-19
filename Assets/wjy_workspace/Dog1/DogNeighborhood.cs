@@ -271,6 +271,43 @@ namespace Wjy.DogTraining
             Box("Leash clip", loop + At(0.05f, -0.20f, 0.0f), At(0.027f, 0.09f, 0.039f), ColorOf("C9A56B"));
         }
 
+        private GameObject foodServing, waterServing;
+
+        internal bool HasServing(DogCareAction action) =>
+            (action == DogCareAction.Feed ? foodServing : waterServing) != null;
+
+        internal void FillBowl(DogCareAction action)
+        {
+            if (HasServing(action)) return;
+            if (action == DogCareAction.Water)
+            {
+                waterServing = Shape(PrimitiveType.Cylinder, "Fresh water", WaterPosition + At(0, .134f, 0),
+                    At(.315f, .008f, .315f), ColorOf("78C9DB"));
+                waterServing.GetComponent<Renderer>().sharedMaterial.SetFloat("_Glossiness", .84f);
+                return;
+            }
+            foodServing = new GameObject("Fresh kibble");
+            foodServing.transform.SetParent(root, false);
+            for (int i = 0; i < 26; i++)
+            {
+                float angle = i * 2.4f;
+                float radius = .132f * Mathf.Sqrt(i / 25f);
+                Vector3 point = FoodPosition + At(radius * Mathf.Cos(angle), .139f + (.132f - radius) * .22f,
+                    radius * Mathf.Sin(angle));
+                var pellet = Shape(PrimitiveType.Sphere, "Kibble", point, At(.047f,.032f,.042f),
+                    ColorOf(i % 2 == 0 ? "8D5531" : "B27845"));
+                pellet.transform.SetParent(foodServing.transform, true);
+            }
+        }
+
+        internal void EmptyBowl(DogCareAction action)
+        {
+            GameObject serving = action == DogCareAction.Feed ? foodServing : waterServing;
+            if (serving != null) UnityEngine.Object.Destroy(serving);
+            if (action == DogCareAction.Feed) foodServing = null;
+            else waterServing = null;
+        }
+
         private void Bowl(Vector3 center, Color color, Color interior, string name)
         {
             AddDogPlayObstacle(center, 0.39f, 0.39f);
@@ -507,6 +544,8 @@ namespace Wjy.DogTraining
 
         public void Dispose()
         {
+            EmptyBowl(DogCareAction.Feed);
+            EmptyBowl(DogCareAction.Water);
             if (root != null)
             {
                 if (UsesSceneApartment)

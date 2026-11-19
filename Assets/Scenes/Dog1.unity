@@ -108027,6 +108027,8 @@ MonoBehaviour:
   lift: {fileID: 475827656}
   playerStart: {fileID: 1707431810}
   dogStart: {fileID: 610189149}
+  dogHouse: {fileID: 1027123094}
+  dogCushion: {fileID: 1469112744}
   fetchPoint: {fileID: 873052306}
   toyPoint: {fileID: 375064968}
   wastePoint: {fileID: 753776353}

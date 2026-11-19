@@ -39,21 +39,34 @@ namespace Wjy.DogTraining
             apartmentDoors.Add(new ApartmentDoor(pivot, target, width, closedYaw, openAngle, label));
         }
 
-        internal void UpdateApartmentInteractions(Transform camera, bool allowInput, bool pressed, float deltaTime)
+        internal DogCareAction? UpdateApartmentInteractions(Transform camera, bool allowInput, bool pressed, float deltaTime)
         {
             interactionHint = null;
             if (lift != null)
             {
                 interactionHint = lift.Tick(camera, allowInput, pressed, deltaTime);
-                if (interactionHint != null) return;
+                if (interactionHint != null) return null;
             }
-            if (apartmentDoors.Count == 0 || (lift != null && lift.IsGroundLevel(camera.position.y))) return;
+            if (lift != null && lift.IsGroundLevel(camera.position.y)) return null;
 
             foreach (ApartmentDoor door in apartmentDoors)
                 door.Advance(camera.position, deltaTime);
 
-            if (!allowInput) return;
+            if (!allowInput) return null;
             Physics.SyncTransforms();
+
+            float foodAim = BowlAim(camera, FoodPosition);
+            float waterAim = BowlAim(camera, WaterPosition);
+            if (Mathf.Max(foodAim, waterAim) > 0f)
+            {
+                DogCareAction action = foodAim >= waterAim ? DogCareAction.Feed : DogCareAction.Water;
+                bool full = HasServing(action);
+                interactionHint = action == DogCareAction.Feed
+                    ? (full ? "食盆里有狗粮" : "E  添加狗粮")
+                    : (full ? "水盆里有水" : "E  添加饮水");
+                if (pressed && !full) return action;
+                return null;
+            }
 
             float best = 2f;
             ApartmentDoor selected = null;
@@ -87,6 +100,14 @@ namespace Wjy.DogTraining
                 if (pressed) selected.Open = !selected.Open;
                 interactionHint = "E  " + (selected.Open ? "关闭" : "打开") + selected.Label;
             }
+            return null;
+        }
+
+        private static float BowlAim(Transform camera, Vector3 center)
+        {
+            Vector3 surface = center + Vector3.up * .16f;
+            float aim = Vector3.Dot(camera.forward, (surface - camera.position).normalized);
+            return aim > .95f && CanReach(camera, surface, 2.25f, null, out _) ? aim : 0f;
         }
 
         private static bool CanReach(Transform camera, Vector3 target, float reach, Transform owner, out float distance)

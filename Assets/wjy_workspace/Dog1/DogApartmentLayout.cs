@@ -32,6 +32,9 @@ namespace Wjy.DogTraining
             world.UseApartment(this, playerBounds, dogBounds, doors, walls, furnitureGroups, dogPlayMarkers,
                 showerControl, showerStreams, showerSplashes, sky);
 
+        [SerializeField] private Transform dogHouse, dogCushion;
+        internal Transform RestSpot(bool house) => house ? dogHouse : dogCushion;
+
         internal Vector3 PlayerStart => playerStart.position;
         internal Vector3 DogStart => dogStart.position;
         internal Vector3 FetchPoint => fetchPoint.position;

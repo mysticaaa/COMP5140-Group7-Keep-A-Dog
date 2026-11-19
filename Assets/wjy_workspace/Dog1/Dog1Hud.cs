@@ -229,7 +229,7 @@ namespace Wjy.DogTraining
             if (showControls)
             {
                 GUILayout.Space(6);
-                GUILayout.Label("按住右键环顾，配合 WASD 移动。靠近门或花洒按 E 开关。按住 V 说话，松开发送。Esc 暂停。", small);
+                GUILayout.Label("按住右键环顾，配合 WASD 移动。对准食盆或水盆按 E 添加狗粮或饮水，靠近门或花洒按 E 开关。按住 V 说话，松开发送。Esc 暂停。", small);
             }
             GUILayout.EndArea();
         }
@@ -425,6 +425,16 @@ namespace Wjy.DogTraining
             GUILayout.BeginHorizontal();
             CareButton(DogCareAction.Walk); CareButton(DogCareAction.Clean);
             GUILayout.EndHorizontal();
+            if (HomeRestSpot(true) != null && HomeRestSpot(false) != null)
+            {
+                bool enabled = GUI.enabled;
+                GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("去狗窝趴下", button)) StartCoroutine(RestWithFurniture(true));
+                if (GUILayout.Button("去软垫趴下", button)) StartCoroutine(RestWithFurniture(false));
+                GUILayout.EndHorizontal();
+                GUI.enabled = enabled;
+            }
             if (walking && GUILayout.Button("取消这次遛弯", button)) CancelWalk();
             if (life.WasteCount > 0)
                 GUILayout.Label("附近还有 " + life.WasteCount + " 处需要清理。", small);
