@@ -66,6 +66,7 @@ namespace Wjy.DogTraining
             Rig.EndSpeech += EndVoice;
             Rig.CancelSpeech += CancelVoice;
             Speech = gameObject.AddComponent<Dog2SpeechInput>();
+            Speech.WarmUp();
             Speech.TranscriptReady += SubmitTranscript;
             world = new DogNeighborhood(transform);
             world.Load(0);
@@ -208,6 +209,7 @@ namespace Wjy.DogTraining
         private void Update()
         {
             if (body == null) return;
+            Speech.PreferHeadsetMicrophone = Rig.DisplayRunning;
             if (lastDisplay && !Rig.DisplayRunning) CancelVoice();
             lastDisplay = Rig.DisplayRunning;
             if (routineReward && Time.unscaledTime > routineRewardDeadline) routineReward = false;

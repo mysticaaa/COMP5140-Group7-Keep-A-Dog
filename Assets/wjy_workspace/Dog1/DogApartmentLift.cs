@@ -42,18 +42,20 @@ namespace Wjy.DogTraining
             return travelling || !doorsOpen || IsGroundLevel(position.y) == upper;
         }
 
-        internal string Tick(Transform camera, bool allowInput, bool pressed, float deltaTime)
+        internal string Tick(Transform camera, bool allowInput, bool pressed, float deltaTime, bool trackedPassenger = false)
         {
             if (travelling)
             {
                 progress = Mathf.Min(1f, progress + deltaTime / Mathf.Max(.1f, travelSeconds));
                 Vector3 start = upper ? upperStop.position : lowerStop.position;
                 Vector3 end = targetUpper ? upperStop.position : lowerStop.position;
+                float previousHeight = cabin.position.y;
                 cabin.position = Vector3.Lerp(start, end, Mathf.SmoothStep(0f, 1f, progress));
                 if (passenger)
                 {
                     Vector3 position = camera.position;
-                    position.y = cabin.position.y + passengerOffset;
+                    // Preserve physical crouching/head movement in VR while carrying the origin.
+                    position.y = trackedPassenger ? position.y + cabin.position.y - previousHeight : cabin.position.y + passengerOffset;
                     camera.position = position;
                 }
                 if (progress < 1f) return passenger ? (targetUpper ? "电梯上行…" : "电梯下行…") : null;

@@ -22,6 +22,9 @@ public static class DogLifeValidation
 
     public static void Run()
     {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("KEEP_A_DOG_TEST_SAVES")))
+            Environment.SetEnvironmentVariable("KEEP_A_DOG_TEST_SAVES",
+                Path.Combine(Path.GetTempPath(), "CityDog-life-test-" + Guid.NewGuid().ToString("N")));
         SessionState.SetBool(Key, true);
         EditorSceneManager.OpenScene("Assets/Scenes/Dog1.unity");
         EditorApplication.isPlaying = true;
@@ -131,6 +134,14 @@ public static class DogLifeValidation
         Capture("03-terrace", camera);
         dog.ShowKeypoints = true;
         Require(dog.ShowKeypoints, "Skeletal overlay");
+
+        for (int round = 0; round < 12 && !profile.ChapterFinished; round++)
+        {
+            for (int second = 0; second < 33; second++) profile.Tick(2);
+            foreach (DogCareAction action in Enum.GetValues(typeof(DogCareAction))) profile.Complete(action);
+        }
+        Require(profile.ChapterFinished && new DogLifeProgress(Path.Combine(folder, "dog-life.json")).ChapterFinished,
+            "The fifth chapter's completion survives a save reload");
     }
 
     private static void Capture(string name, Camera camera)
@@ -169,7 +180,7 @@ public static class DogLifeValidation
     {
         SessionState.SetBool(Key, false);
         if (error == null)
-            Debug.Log("CITY_DOG_OK: daily gift, feed/water/play, chapter, park, walk, cleaning, sequence, save reload, terrace and keypoints.");
+            Debug.Log("CITY_DOG_OK: daily gift, care, park, walk, sequence, terrace, keypoints and fifth-chapter completion persisted.");
         else Debug.LogException(error);
         EditorApplication.Exit(error == null ? 0 : 1);
     }

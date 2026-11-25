@@ -1,0 +1,85 @@
+original skeleton loaded
+sit forepaws supported
+action completed: sit
+crouch lowers torso
+action completed: crouch
+action completed: spin
+right paw raised with stable supporting paw
+action completed: paw
+play bow lowers front, keeps rump up
+action completed: bow
+action completed: invite
+action completed: sniff
+action completed: pounce
+action completed: burst
+action completed: pet
+action completed: rest
+puzzled head tilt uses a spatial question mark
+action completed: refuse
+action completed: come
+action completed: fetch_toy
+physical fetch succeeded: fetch_toy
+action completed: fetch_lollipop
+physical fetch succeeded: fetch_lollipop
+attentive head tilt visibly reaches 12–17 degrees
+attention does not turn or translate root
+stereo bone links constructed
+unknown tagged action rejected
+unique tagged action: head_turn
+play head_turn
+micro-action finishes: head_turn
+head turn has visible yaw
+unique tagged action: head_tilt
+play head_tilt
+micro-action finishes: head_tilt
+head tilt has visible roll
+unique tagged action: ear_perk
+play ear_perk
+micro-action finishes: ear_perk
+ear bones move: ear_perk
+unique tagged action: ear_flick
+play ear_flick
+micro-action finishes: ear_flick
+ear bones move: ear_flick
+unique tagged action: chest_lean
+play chest_lean
+micro-action finishes: chest_lean
+chest follows head and neck
+unique tagged action: air_sniff
+play air_sniff
+micro-action finishes: air_sniff
+head bones move: air_sniff
+unique tagged action: gaze_exchange
+play gaze_exchange
+micro-action finishes: gaze_exchange
+head bones move: gaze_exchange
+unique tagged action: soft_shake
+play soft_shake
+micro-action finishes: soft_shake
+head bones move: soft_shake
+unique tagged action: groom_paw
+play groom_paw
+micro-action finishes: groom_paw
+head bones move: groom_paw
+unique tagged action: check_behind
+play check_behind
+micro-action finishes: check_behind
+head bones move: check_behind
+unique tagged action: nose_to_floor
+play nose_to_floor
+micro-action finishes: nose_to_floor
+head bones move: nose_to_floor
+quiet posture produced a micro-action without input
+walked toward a named landmark and stopped to inspect
+breed initialized: german-shepherd
+breed initialized: border-collie
+breed initialized: boxer
+breed initialized: dalmatian
+breed initialized: golden-retriever
+breed initialized: great-dane
+breed initialized: husky
+breed initialized: labrador-retriever
+breed initialized: pitbull
+breed initialized: rottweiler
+breed initialized: shiba-inu
+DOG_MOTION_RECOVERY_OK

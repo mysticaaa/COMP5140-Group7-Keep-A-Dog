@@ -30,26 +30,38 @@ namespace KeepADog.Demo
 
         internal static async Task<DogAgent.Interpretation> InterpretAsync(string input, string memory, string endpoint, string model, string apiKey)
         {
+            string content = await RequestJsonAsync(Instructions + "\nDog memory: " + memory, input, endpoint, model, apiKey);
+            return Parse(content);
+        }
+
+        internal static async Task<string> RequestJsonAsync(string instructions, string input, string endpoint, string model, string apiKey)
+        {
             if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri uri) ||
                 (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
-                !string.IsNullOrEmpty(uri.UserInfo))
+                !string.IsNullOrEmpty(uri.UserInfo) || string.IsNullOrWhiteSpace(model))
                 return null;
 
             var payload = new Request
             {
                 model = model.Trim(),
-                messages = new[] { new Message("system", Instructions + "\nDog memory: " + memory), new Message("user", input) },
+                messages = new[] { new Message("system", instructions), new Message("user", input) },
                 response_format = new ResponseFormat { type = "json_object" },
                 stream = false,
                 temperature = 0f,
-                max_tokens = 160
+                max_tokens = 256
             };
 
             try
             {
                 using (var request = new UnityWebRequest(uri.AbsoluteUri, UnityWebRequest.kHttpVerbPOST))
                 {
-                    request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload)));
+                    string json = JsonUtility.ToJson(payload);
+                    if (uri.Host.Equals("api.deepseek.com", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Keep the command parser responsive and reserve the output budget for JSON.
+                        json = json.Insert(json.Length - 1, ",\"thinking\":{\"type\":\"disabled\"}");
+                    }
+                    request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                     request.downloadHandler = new DownloadHandlerBuffer();
                     request.timeout = 12;
                     request.redirectLimit = 0;
@@ -63,12 +75,15 @@ namespace KeepADog.Demo
                     if (operation.isDone) completion.TrySetResult(true);
                     await completion.Task;
                     if (request.result != UnityWebRequest.Result.Success || request.downloadedBytes > 32768)
+                    {
+                        Debug.LogWarning("Dog model request failed. HTTP " + request.responseCode + ", result " + request.result);
                         return null;
+                    }
 
                     var response = JsonUtility.FromJson<Response>(request.downloadHandler.text);
                     if (response?.choices == null || response.choices.Length == 0)
                         return null;
-                    return Parse(response.choices[0]?.message?.content);
+                    return response.choices[0]?.message?.content;
                 }
             }
             catch (Exception error) when (error is ArgumentException || error is InvalidOperationException || error is IOException)
@@ -81,7 +96,9 @@ namespace KeepADog.Demo
         {
             if (string.IsNullOrWhiteSpace(content) || content.Length > 1024)
                 return null;
-            var result = JsonUtility.FromJson<Result>(content);
+            Result result;
+            try { result = JsonUtility.FromJson<Result>(content); }
+            catch (ArgumentException) { return null; }
             if (result == null || result.kind == null || result.action == null || result.target == null || result.reply == null)
                 return null;
 

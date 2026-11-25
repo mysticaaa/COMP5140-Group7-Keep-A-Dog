@@ -1,0 +1,39 @@
+DOG1_XR_CHECK: separate headset camera exists
+DOG1_XR_CHECK: desktop camera remains active without headset
+DOG1_XR_CHECK: one Dog1 simulation, no duplicate Dog2 trainer
+DOG1_XR_CHECK: fresh Dog1 uses the existing Border Collie model
+DOG1_XR_CHECK: ray click: 故事
+DOG1_XR_CHECK: headset story shows the current chapter and objectives
+DOG1_XR_CHECK: ray click: 等一会儿再玩
+DOG1_XR_CHECK: story choice responds to the dog's invitation
+DOG1_XR_CHECK: story choice shows its response immediately even while a notice is active
+DOG1_XR_CHECK: ray click: 训练
+DOG1_XR_CHECK: controller ray navigates training tab
+DOG1_XR_CHECK: ray click: 坐下
+DOG1_XR_CHECK: controller ray starts actual Agent training
+DOG1_XR_CHECK: Agent action completed
+DOG1_XR_CHECK: ray click: 照料
+DOG1_XR_CHECK: care controls rendered in world space
+DOG1_XR_CHECK: ray click: 出门
+DOG1_XR_CHECK: scene menu available
+DOG1_XR_CHECK: ray click: 犬种
+DOG1_XR_CHECK: breed menu rendered
+DOG1_XR_CHECK: ray click: 故事
+DOG1_XR_CHECK: ray click: 暂停
+DOG1_XR_CHECK: headset pause applies
+DOG1_XR_CHECK: ray click: 继续陪伴
+DOG1_XR_CHECK: headset resume works while paused
+DOG1_XR_CHECK: ray click: 动作
+DOG1_XR_CHECK: ray click: 歪头倾听
+DOG1_XR_CHECK: headset action page plays head tilt
+DOG1_XR_CHECK: developer action browser offers sequential playback
+DOG1_XR_CHECK: geometric controller press and release dispatches clicks
+DOG1_XR_CHECK: lift carries XR origin by cabin delta
+DOG1_XR_CHECK: physical head movement preserved in moving lift
+DOG1_XR_CHECK: desktop does not force stale Quest microphone
+DOG1_XR_CHECK: local speech service prewarmed and verified
+DOG1_XR_CHECK: real Chinese WAV transcribes through Unity HTTP client
+DOG1_XR_CHECK: speech transcript reaches same Dog1 Agent
+DOG1_XR_CHECK: ray click: 故事
+DOG1_XR_CHECK: desktop controls retained
+DOG1_XR_CHECK: local scene choice reached actual motion playback

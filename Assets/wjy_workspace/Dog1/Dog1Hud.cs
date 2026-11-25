@@ -5,7 +5,7 @@ namespace Wjy.DogTraining
 {
     public sealed partial class Dog1Training
     {
-        private const float JournalWidth = 326f;
+        private const float JournalWidth = 344f;
         private const float ChapterWidth = 250f;
         private const float Margin = 22f;
         private static readonly Color Paper = new Color32(251, 237, 215, 252);
@@ -37,6 +37,8 @@ namespace Wjy.DogTraining
         private bool showControls, journalOpen = true, chapterOpen = true, memoryOpen;
         private int pointerVoiceControl;
         private bool IsTextEntryFocused { get; set; }
+        private bool showDeveloperPurpose;
+        private string DeveloperDogAction => dog.IsPlayingMicroAction ? dog.CurrentMicroActionLabel : dog.StateLabel;
         private float hudWidth;
 
         private void StyleHud()
@@ -154,7 +156,7 @@ namespace Wjy.DogTraining
 
         private void OnGUI()
         {
-            if (life == null) return;
+            if (life == null || InHeadset) return;
             Event current = Event.current;
             if (pointerVoiceControl != 0 && current.rawType == EventType.MouseUp && current.button == 0)
             {
@@ -204,7 +206,8 @@ namespace Wjy.DogTraining
         private void DrawMenu(float height)
         {
             Box(new Rect(0, 0, hudWidth, height), new Color32(43, 31, 23, 89));
-            var card = new Rect(48, (height - 389f) * 0.48f, 470, 389);
+            float cardHeight = showControls ? 493f : 389f;
+            var card = new Rect(48, (height - cardHeight) * 0.48f, 470, cardHeight);
             Sheet(card, true);
             Box(new Rect(card.x + 22, card.y + 28, 3, card.height - 54), Clay, 1f);
             GUILayout.BeginArea(new Rect(card.x + 40, card.y + 35, card.width - 69, card.height - 58));
@@ -245,7 +248,7 @@ namespace Wjy.DogTraining
 
             DrawChapter();
             DrawSceneFeedback(height);
-            string hint = world.InteractionHint;
+            string hint = string.IsNullOrEmpty(PhysicalPropHint) ? world.InteractionHint : PhysicalPropHint;
             if (!string.IsNullOrEmpty(hint))
             {
                 float left = journalOpen ? Margin + JournalWidth : Margin;
@@ -282,7 +285,7 @@ namespace Wjy.DogTraining
             GUILayout.Space(6);
 
             GUILayout.BeginHorizontal();
-            Tab("照护", 0); Tab("说话", 1); Tab("地图", 2); Tab("设置", 3);
+            Tab("照护", 0); Tab("说话", 1); Tab("地图", 2); Tab("设置", 3); Tab("动作", 4);
             GUILayout.EndHorizontal();
 
             scroll = GUILayout.BeginScrollView(scroll, stack);
@@ -292,6 +295,7 @@ namespace Wjy.DogTraining
                 case 0: DrawCare(); break;
                 case 1: DrawInteraction(); break;
                 case 2: DrawMap(); break;
+                case 4: DrawMotionPreview(); break;
                 default: DrawSettings(); break;
             }
             GUILayout.EndScrollView();
@@ -303,12 +307,12 @@ namespace Wjy.DogTraining
             float right = hudWidth - ChapterWidth - Margin;
             float panelHeight = 46;
             var chapter = life.CurrentChapter;
-            string description = life.ChapterFinished
-                ? "生活继续。今天也可以和麦粒留下新的约定。"
-                : chapter.Description;
+            string description = StoryPrompt;
+            var choices = StoryChoiceLabels;
             if (chapterOpen)
                 panelHeight += small.CalcHeight(new GUIContent(description), ChapterWidth - 28) + 14
-                    + (life.ChapterFinished ? 0 : (chapter.Tasks.Count + (chapter.RequiredLocation.HasValue ? 1 : 0)) * 21);
+                    + (life.ChapterFinished ? 0 : (chapter.Tasks.Count + (chapter.RequiredLocation.HasValue ? 1 : 0)) * 21)
+                    + choices.Count * 32;
 
             var card = new Rect(right, Margin, ChapterWidth, panelHeight);
             Sheet(card);
@@ -320,6 +324,8 @@ namespace Wjy.DogTraining
             GUILayout.BeginArea(new Rect(card.x + 14, card.y + 43, card.width - 28, card.height - 49));
             GUILayout.Label(description, small);
             GUILayout.Space(6);
+            for (int index = 0; index < choices.Count; index++)
+                if (GUILayout.Button(choices[index], button, GUILayout.Height(29))) ChooseStoryOption(index);
             if (!life.ChapterFinished)
             {
                 foreach (var task in chapter.Tasks)
@@ -356,6 +362,7 @@ namespace Wjy.DogTraining
             bool capturing = VoiceListening || VoiceFinalizing;
             string line = VoiceListening ? (pointerVoiceControl != 0 ? "正在听你说话，松开鼠标即可发送。" : "正在听你说话，松开 V 即可发送。")
                 : VoiceFinalizing ? "正在识别…" : reply;
+            if(!capturing && showDeveloperPurpose) line = "当前动作：" + DeveloperDogAction + "\n" + line;
             string attribution = capturing ? (VoiceListening ? "麦克风" : "语音")
                 : !string.IsNullOrEmpty(heard) && caption == "你 · " + heard ? "你说  " + heard : caption;
             float padding = 14f;
@@ -409,6 +416,7 @@ namespace Wjy.DogTraining
             GUIStyle style = tab == index ? selected : tabStyle;
             if (!GUILayout.Button(name, style, GUILayout.MinWidth(55f)) || tab == index) return;
             tab = index;
+            PlayMenuTap();
             scroll = Vector2.zero;
             GUI.FocusControl(null);
         }
@@ -515,7 +523,7 @@ namespace Wjy.DogTraining
             GUILayout.EndHorizontal();
             if (GUILayout.Button("教它「晚安」动作串", button)) Submit("晚安：坐下、抬右爪、拜一拜");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("教它叼棒棒糖", button)) Submit(KeepADog.Demo.DogAgent.TeachExample);
+            if (GUILayout.Button("教它叼毛绒玩具", button)) Submit(KeepADog.Demo.DogAgent.TeachExample);
             if (GUILayout.Button("我心情不好", button)) Submit("我心情不好");
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
@@ -637,11 +645,9 @@ namespace Wjy.DogTraining
         {
             GUILayout.Label("声音与显示", heading);
             if (GUILayout.Button(quiet ? "开启奖励提示音" : "关闭奖励提示音", button))
-            {
-                quiet = !quiet;
-                PlayerPrefs.SetInt("CityDogQuiet", quiet ? 1 : 0);
-                PlayerPrefs.Save();
-            }
+                ToggleRewardAudio();
+            if (GUILayout.Button(showDeveloperPurpose ? "隐藏当前动作提示" : "显示当前动作提示", button))
+                showDeveloperPurpose = !showDeveloperPurpose;
             if (GUILayout.Button(dog.ShowKeypoints ? "隐藏骨骼关键点" : "显示骨骼关键点", button))
                 dog.ShowKeypoints = !dog.ShowKeypoints;
             GUILayout.Space(9);
@@ -656,6 +662,20 @@ namespace Wjy.DogTraining
             Divider();
             GUILayout.Space(8);
             GUILayout.Label("语音与 Agent", heading);
+            if (speech != null)
+            {
+                GUILayout.Label(speech.SelectedMicrophoneLabel, small);
+                GUILayout.Label(speech.ServiceStatus, small);
+                bool inputEnabled = GUI.enabled;
+                GUI.enabled = inputEnabled && !VoiceListening && !VoiceFinalizing;
+                if (GUILayout.Button("切换麦克风", button)) speech.CycleMicrophone();
+                GUI.enabled = inputEnabled;
+            }
+            if (HeadsetRig != null)
+            {
+                GUILayout.Label(HeadsetRig.Status, small);
+                if (GUILayout.Button("连接 / 重连头显 · F9", button)) HeadsetRig.RetryXR();
+            }
             if (!string.IsNullOrWhiteSpace(VoiceStatus)) GUILayout.Label(VoiceStatus, small);
             GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
             if (GUILayout.Button(useModel ? "停用可选模型" : "启用可选模型", button)) useModel = !useModel;
@@ -700,9 +720,23 @@ namespace Wjy.DogTraining
 
         private void DisposeHud()
         {
+            DisposeHeadsetVisuals();
             if (journalFont != null) Destroy(journalFont);
             if (displayFont != null) Destroy(displayFont);
             foreach (var texture in hudTextures) Destroy(texture);
+        }
+
+        private void ToggleRewardAudio()
+        {
+            quiet=!quiet;
+            PlayerPrefs.SetInt("CityDogQuiet",quiet?1:0);
+            PlayerPrefs.Save();
+        }
+
+        private void PlayMenuTap()
+        {
+            if(!quiet && feedbackAudio!=null && rewardSound!=null)
+                feedbackAudio.PlayOneShot(rewardSound,.14f);
         }
     }
 }

@@ -5,8 +5,8 @@ namespace Wjy.DogTraining
     public sealed partial class DogCompanion
     {
         private const float QuietStanceDelay = .08f;
-        private const float QuietStepDuration = .16f;
-        private const float QuietStepDistance = .024f;
+        private const float QuietStepDuration = .21f;
+        private const float QuietStepDistance = .051f;
         private float quietStanceAge, quietStepAge;
         private Foot quietStep;
         private Vector3 quietStepStart, quietStepGoal;
@@ -51,7 +51,9 @@ namespace Wjy.DogTraining
             foreach (Foot foot in feet)
             {
                 Vector3 goal = FootGoal(foot);
-                float distance = (goal - foot.Contact).sqrMagnitude;
+                // Stable stance tolerates some fore/aft variation; prioritize crossed or spread paws.
+                Vector3 offset = transform.InverseTransformDirection(goal - foot.Contact);
+                float distance = offset.x * offset.x + .60f * offset.z * offset.z;
                 if (distance <= best) continue;
                 best = distance;
                 quietStep = foot;

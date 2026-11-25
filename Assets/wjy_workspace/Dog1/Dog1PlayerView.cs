@@ -16,6 +16,16 @@ namespace Wjy.DogTraining
             transform.rotation = Quaternion.Euler(pitch, yaw, 0);
         }
 
+        public void LookAt(Vector3 point)
+        {
+            Vector3 direction = point - transform.position;
+            if (direction.sqrMagnitude < .01f) return;
+            Vector3 angles = Quaternion.LookRotation(direction, Vector3.up).eulerAngles;
+            yaw = angles.y;
+            pitch = Mathf.Clamp(Mathf.DeltaAngle(0f, angles.x), -65f, 65f);
+            transform.rotation = Quaternion.Euler(pitch, yaw, 0);
+        }
+
         private void Update()
         {
             if (InputSuspended || !Input.GetMouseButton(1)) return;

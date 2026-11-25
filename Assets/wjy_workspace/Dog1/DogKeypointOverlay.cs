@@ -3,6 +3,7 @@ using UnityEngine;
 
 namespace Wjy.DogTraining
 {
+    [DefaultExecutionOrder(100)]
     public sealed class DogKeypointOverlay : MonoBehaviour
     {
         private static readonly Color AxialColor = new Color32(113, 225, 233, 230);
@@ -30,6 +31,47 @@ namespace Wjy.DogTraining
         private Camera view;
         private DogCompanion owner;
         private Transform muzzle, head;
+        private Material worldMaterial;
+        private readonly List<(Transform from, Transform to, LineRenderer line)> worldLinks =
+            new List<(Transform, Transform, LineRenderer)>();
+
+        private void LateUpdate()
+        {
+            view = Camera.main;
+            bool stereo = view != null && view.stereoEnabled;
+            if (stereo && worldLinks.Count == 0) BuildWorldLinks();
+            foreach (var link in worldLinks)
+            {
+                link.line.enabled = stereo;
+                if (!stereo || link.from == null || link.to == null) continue;
+                link.line.SetPosition(0, link.from.position);
+                link.line.SetPosition(1, link.to.position);
+            }
+        }
+        private void BuildWorldLinks()
+        {
+            var shader = Resources.Load<Shader>("Dog1/DebugBones");
+            worldMaterial = new Material(shader != null ? shader : Shader.Find("Sprites/Default"));
+            // Debug bones must remain visible inside the skin, in both stereo eyes.
+            if (worldMaterial.HasProperty("_ZTest")) worldMaterial.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.Always);
+            foreach (var chain in chains)
+                for (int i=1; i<chain.joints.Length; i++)
+                    AddWorldLink(chain.joints[i-1], chain.joints[i], chain.color);
+            AddWorldLink(head, muzzle, SwingColor);
+        }
+        private void AddWorldLink(Transform from, Transform to, Color color)
+        {
+            if (from == null || to == null) return;
+            var go = new GameObject("Stereo bone " + from.name + " -> " + to.name);
+            go.transform.SetParent(transform, false);
+            var line = go.AddComponent<LineRenderer>();
+            line.sharedMaterial = worldMaterial; line.useWorldSpace = true; line.positionCount = 2;
+            line.startWidth = line.endWidth = .009f;
+            line.startColor = line.endColor = color;
+            worldLinks.Add((from,to,line));
+        }
+        private void OnDisable() { foreach (var link in worldLinks) link.line.enabled = false; }
+        private void OnDestroy() { if (worldMaterial != null) Destroy(worldMaterial); }
 
         public void Bind(IReadOnlyDictionary<string, Transform> bones)
         {

@@ -10,13 +10,17 @@ using UnityEngine.XR.OpenXR.Features.Interactions;
 
 namespace Wjy.DogTraining
 {
-    // Only Dog2 explicitly starts XR. Other scenes retain their desktop behavior.
+    // Shared manual OpenXR startup for Dog1 and Dog2.
     public sealed class Dog2OpenXR : MonoBehaviour
     {
         public Transform Origin { get; private set; }
         public Camera HeadCamera { get; private set; }
         public string Status { get; private set; } = "正在启动 OpenXR……";
         public bool SkipInitializationForValidation;
+        public bool SeparateHeadCamera;
+        public bool LocomotionSuspended;
+        public event System.Action RecenterPanel;
+        public event System.Action Interact;
         public event System.Action ToggleSpeech;
         public event System.Action BeginSpeech;
         public event System.Action EndSpeech;
@@ -38,7 +42,7 @@ namespace Wjy.DogTraining
             manager.activeLoader.GetLoadedSubsystem<XRDisplaySubsystem>().running;
         public string DisplayStatus => "双眼显示：" + (DisplayRunning ? "运行中" : "未启动") +
             "；头显设备：" + (UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.Head).isValid ? "已检测到" : "未检测到");
-        private bool previousTalk, previousCancel;
+        private bool previousTalk, previousCancel, previousMenu, previousInteract;
         private int talkPressCount;
         private string lastVoiceInput = "尚未收到按键";
         public string InputStatus { get; private set; } = "等待右手柄连接";
@@ -50,9 +54,14 @@ namespace Wjy.DogTraining
             Origin.position = new Vector3(0, 0, -5);
             offset = new GameObject("Camera Floor Offset").transform;
             offset.SetParent(Origin, false); offset.localPosition = Vector3.up * 1.65f;
-            HeadCamera = Camera.main;
+            HeadCamera = SeparateHeadCamera ? null : Camera.main;
             if (HeadCamera == null) HeadCamera = new GameObject("Main Camera", typeof(Camera), typeof(AudioListener)).GetComponent<Camera>();
-            HeadCamera.tag = "MainCamera";
+            HeadCamera.tag = SeparateHeadCamera ? "Untagged" : "MainCamera";
+            if (SeparateHeadCamera)
+            {
+                HeadCamera.enabled = false;
+                HeadCamera.GetComponent<AudioListener>().enabled = false;
+            }
             HeadCamera.transform.SetParent(offset, false);
             HeadCamera.transform.localPosition = Vector3.zero; HeadCamera.transform.localRotation = Quaternion.identity;
             HeadCamera.nearClipPlane = 0.05f; HeadCamera.farClipPlane = 200;
@@ -220,6 +229,12 @@ namespace Wjy.DogTraining
             previousTalk = talkHeld;
             previousCancel = cancelHeld;
             var leftDevice = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+            bool menu = false, interact = false;
+            if (leftDevice.isValid) leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out menu);
+            if (rightDevice.isValid) rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.gripButton, out interact);
+            if (xrStarted && menu && !previousMenu) RecenterPanel?.Invoke();
+            if (xrStarted && interact && !previousInteract) Interact?.Invoke();
+            previousMenu = menu; previousInteract = interact;
             InputStatus = "左手柄：" + (leftDevice.isValid ? "已连接" : "未连接") + "；" + (rightDevice.isValid ? "右手柄已连接：" + rightDevice.name :
                 talk.controls.Count > 0 ? "右手柄输入已绑定" : "未检测到右手柄：请进入 Quest Link 并唤醒手柄") +
                 "；A：" + (talkHeld ? "按下" : "松开") + "；" + lastVoiceInput;
@@ -242,6 +257,10 @@ namespace Wjy.DogTraining
             }
             else if (talkReleased && xrStarted) EndSpeech?.Invoke();
             if (!xrStarted) return;
+            // Track hands even while gameplay locomotion is suspended by a menu or lift.
+            leftTracked = SetHand(leftHand, leftPosition, leftRotation, leftDevice);
+            rightTracked = SetHand(rightHand, rightPosition, rightRotation, rightDevice);
+            if (LocomotionSuspended) return;
             Vector2 move = leftStick.ReadValue<Vector2>();
             if (leftDevice.isValid && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 fallbackMove)) move = fallbackMove;
             Vector3 forward = Vector3.ProjectOnPlane(HeadCamera.transform.forward, Vector3.up).normalized;

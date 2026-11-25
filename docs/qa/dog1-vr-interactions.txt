@@ -1,0 +1,45 @@
+Unity 2022.3.62f3, Dog1 Border Collie, isolated saves, editor controller and loopback model fixtures.
+
+DOG1_PROPS_CHECK: exactly three explicit grip targets in the neighborhood
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 玩具球
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 棒棒糖毛绒玩具
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 小布骨
+DOG1_PROPS_CHECK: right grip takes the toy without also using the fixture
+DOG1_PROPS_CHECK: an empty right grip falls back to the aimed fixture
+DOG1_PROPS_CHECK: right grip owns one dynamic toy
+DOG1_PROPS_CHECK: second hand and dog cannot take a toy already held in a hand
+DOG1_PROPS_CHECK: fixed-step grip follows a tracked hand upward
+DOG1_PROPS_CHECK: release returns a bounded throw to collision physics
+DOG1_PROPS_CHECK: released toy has horizontal travel and gravity
+DOG1_PROPS_CHECK: dog can take a released toy
+DOG1_PROPS_CHECK: a hand cannot take a toy from the dog's mouth
+DOG1_PROPS_CHECK: dog puts toy down without adding throw velocity
+DOG1_PROPS_CHECK: switching scene releases the held toy
+DOG1_PROPS_CHECK: exactly three explicit grip targets in the neighborhood
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 玩具球
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 棒棒糖毛绒玩具
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 软飞盘
+DOG1_PROPS_CHECK: exactly three explicit grip targets in the neighborhood
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 玩具球
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 棒棒糖毛绒玩具
+DOG1_PROPS_CHECK: toy has an active collider and rigid body
+DOG1_PROPS_CHECK: toy roster includes 云朵布偶
+DOG1_PROPS_OK
+
+DOG_CONVERSATION: voice normalization, physical plush retrieval, praise and save reload passed
+DOG_CONVERSATION: invitation reply caused play or rest
+DOG_CONVERSATION: model scene motion passed for allowed
+DOG_CONVERSATION: model scene motion passed for disallowed
+DOG_CONVERSATION: model scene motion passed for unavailable
+DOG_CONVERSATION: invitation JSON selected a bounded quiet action and reply
+DOG_CONVERSATION_OK
+
+CITY_DOG_OK: daily gift, care, park, walk, sequence, terrace, keypoints and fifth-chapter completion persisted.

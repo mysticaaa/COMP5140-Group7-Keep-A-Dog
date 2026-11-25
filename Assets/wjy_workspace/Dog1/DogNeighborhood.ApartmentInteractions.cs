@@ -39,12 +39,12 @@ namespace Wjy.DogTraining
             apartmentDoors.Add(new ApartmentDoor(pivot, target, width, closedYaw, openAngle, label));
         }
 
-        internal DogCareAction? UpdateApartmentInteractions(Transform camera, bool allowInput, bool pressed, float deltaTime)
+        internal DogCareAction? UpdateApartmentInteractions(Transform camera, bool allowInput, bool pressed, float deltaTime, bool trackedPassenger = false)
         {
             interactionHint = null;
             if (lift != null)
             {
-                interactionHint = lift.Tick(camera, allowInput, pressed, deltaTime);
+                interactionHint = lift.Tick(camera, allowInput, pressed, deltaTime, trackedPassenger);
                 if (interactionHint != null) return null;
             }
             if (lift != null && lift.IsGroundLevel(camera.position.y)) return null;

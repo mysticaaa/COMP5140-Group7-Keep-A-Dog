@@ -37,7 +37,7 @@ namespace Wjy.DogTraining
         private readonly Dictionary<Transform, Vector3> bindPositions = new Dictionary<Transform, Vector3>();
         private Vector3 target;
         private float nextApproach, pauseUntil, actionAge;
-        private float crouchBlend, sitBlend, angerBlend;
+        private float crouchBlend, sitBlend;
         private readonly Transform[] tailBones = new Transform[4];
         private readonly float[] tailBends = new float[4];
         private static readonly float[] TailSweep = { 22f, 10f, 5f, 2.5f };
@@ -45,24 +45,23 @@ namespace Wjy.DogTraining
         private float tailWagAge = TailWagDuration;
         private float tailWagPhase, tailCarriage, petBlend, petLookYaw;
         private Quaternion startSpin;
-        private float turnIntent, torsoTurn;
+        private float turnIntent, torsoTurn, yawSpeed;
+        private int lastTurnFrame = -10;
         private const float SpinDuration = 2.2f;
         private const float SpinMotionEnd = 1.92f;
         private const float SpinStepArc = 60f;
-        private ParticleSystem smoke;
-        private Material coat, smokeMaterial;
-        private Texture2D smokeTexture;
+        private Material coat;
         private bool approaching;
         private bool chooseAfterPause;
         private bool followingWalk;
         private readonly List<Foot> feet = new List<Foot>(4);
         private Vector3 lastRootPosition, lastRootForward;
-        private float gaitCycle, locomotionBlend, stillTime, groundHeight;
+        private float gaitCycle, locomotionBlend, groundHeight;
         private float walkVelocity, strideAcceleration, trotBlend, restSpotCrouch;
+        private float remainingWalkDistance, remainingWalkAngle;
         private float strideScale = 1f;
         private int lastWalkFrame = -10;
         private bool trotting;
-        private bool gaitActive;
         private readonly Quaternion[] poseJointRotations = new Quaternion[3];
         internal Transform MuzzleAnchor { get; private set; }
 
@@ -90,6 +89,7 @@ namespace Wjy.DogTraining
             public bool Planted;
             public Vector3 Contact, SwingStart, Landing;
             public float SwingProgress, SwingHeight, SwingFraction, WristPitch;
+            public float LandedAt, SupportError;
             public Vector3 SpinStart, PounceStart;
         }
         public Transform VisualRoot => visual;
@@ -203,7 +203,7 @@ namespace Wjy.DogTraining
                 Transform paw = Bone(name);
                 if (paw != null) footHeight = Mathf.Min(footHeight, paw.position.y);
             }
-            if (!float.IsInfinity(footHeight)) visual.position += Vector3.up * (transform.position.y + 0.025f * bodyScale - footHeight);
+            if (!float.IsInfinity(footHeight)) visual.position += Vector3.up * (transform.position.y + PawGroundClearance * bodyScale - footHeight);
             bindPositions[visual] = visual.localPosition;
             // Lateral sequence: left hind, left fore, right hind, right fore.
             AddFoot(false, false, 0f);
@@ -224,7 +224,6 @@ namespace Wjy.DogTraining
                 Vector3 offset = breed.IsOriginal ? transform.forward * 0.17f - Vector3.up * 0.055f : ImportedMuzzleOffset();
                 MuzzleAnchor.localPosition = head.InverseTransformVector(offset);
             }
-            BuildSmoke();
             nextApproach = Time.time + 6f;
             ChooseDestination(false);
             Ready = true;
@@ -262,7 +261,9 @@ namespace Wjy.DogTraining
             if (front && right)
             {
                 float standingReach = chain[2].position.y - tip.position.y;
-                strideScale = Mathf.Clamp(standingReach / .48f, .5f * bodyScale, bodyScale);
+                // The v1 German Shepherd was calibrated directly in metres. Re-estimating
+                // its stride from foreleg height shortened it and substantially raised cadence.
+                strideScale = breed.IsOriginal ? 1f : Mathf.Clamp(standingReach / .48f, .5f * bodyScale, bodyScale);
             }
             feet.Add(new Foot { Tip = tip, Chain = chain, Neutral = transform.InverseTransformPoint(tip.position),
                 NeutralRotation = Quaternion.Inverse(transform.rotation) * tip.rotation,
@@ -275,13 +276,15 @@ namespace Wjy.DogTraining
             CancelQuietStance();
             walkVelocity = strideAcceleration = trotBlend = 0f;
             lastWalkFrame = -10;
+            lastTurnFrame = -10;
+            yawSpeed = 0f;
+            lastSharpTurn = float.NegativeInfinity;
             trotting = false;
             lastRootPosition = transform.position;
             lastRootForward = transform.forward;
             groundHeight = transform.position.y;
             gaitCycle = -0.0001f;
-            gaitActive = false;
-            locomotionBlend = stillTime = 0f;
+            locomotionBlend = 0f;
             foreach (Foot foot in feet)
             {
                 foot.Contact = FootGoal(foot);
@@ -290,6 +293,8 @@ namespace Wjy.DogTraining
                 foot.Landing = foot.SwingStart = foot.Contact;
                 foot.SwingHeight = 0f;
                 foot.SwingFraction = 1f - StanceFraction;
+                foot.LandedAt = float.NegativeInfinity;
+                foot.SupportError = 0f;
             }
         }
         private void Bend(string name, float degrees)
@@ -332,7 +337,7 @@ namespace Wjy.DogTraining
                 // Keep the support paws anchored once the dog settles into a standing or seated pose.
                 else if (CurrentAction == "invite" ? actionAge < .68f :
                     CurrentAction != "pet" && CurrentAction != "pounce" && CurrentAction != "sniff" &&
-                    (actionAge < (CurrentAction == "paw" ? .22f : .45f) || CurrentAction == "refuse")) FaceUser(dt);
+                    CurrentAction != "refuse" && actionAge < (CurrentAction == "paw" ? .22f : .45f)) FaceUser(dt);
                 return;
             }
             if (!allowWandering)
@@ -353,6 +358,7 @@ namespace Wjy.DogTraining
                 }
                 return;
             }
+            if (TickExploration(dt)) return;
             if (Time.time >= nextApproach)
             {
                 ChooseDestination(true);
@@ -392,7 +398,9 @@ namespace Wjy.DogTraining
         {
             if (user == null) return;
             Vector3 delta = user.position - transform.position; delta.y = 0;
-            if (delta.sqrMagnitude > 0.01f) TurnTowards(user.position, dt);
+            // Around the forward cone the neck can follow the player without shuffling all four paws.
+            if (delta.sqrMagnitude > 0.01f && Mathf.Abs(HeadingChange(transform.forward, delta)) > 24f)
+                TurnTowards(user.position, dt, 24f);
         }
 
         private void WalkTowards(Vector3 destination, float speed, float dt)
@@ -406,14 +414,19 @@ namespace Wjy.DogTraining
             lastWalkFrame = Time.frameCount;
             float angle = Mathf.Abs(TurnTowards(destination, dt));
             float alignment = Vector3.Dot(transform.forward, offset.normalized);
-            float corner = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(12f, 86f, angle));
-            float stopSpeed = Mathf.Sqrt(2f * 2.5f * Mathf.Max(0f, offset.magnitude - .009f));
+            float corner = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(19f, 92f, angle));
+            float stopSpeed = Mathf.Sqrt(2f * 2.1f * Mathf.Max(0f, offset.magnitude - .009f));
             float requested = Mathf.Min(speed * corner, stopSpeed);
-            walkVelocity = Mathf.SmoothDamp(walkVelocity, requested, ref strideAcceleration,
+            if (breed.IsOriginal)
+                walkVelocity = Mathf.MoveTowards(walkVelocity, requested, dt * (walkVelocity < requested ? 2.35f : 4.3f));
+            else walkVelocity = Mathf.SmoothDamp(walkVelocity, requested, ref strideAcceleration,
                 requested > walkVelocity ? .20f : .13f, Mathf.Infinity, dt);
-            float stride = walkVelocity * dt * Mathf.InverseLerp(.46f, .955f, alignment);
+            float stride = walkVelocity * dt * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(.23f, .95f, alignment));
             stride = Mathf.Min(stride, Mathf.Max(0f, Vector3.Dot(offset, transform.forward)));
             transform.position = Limit(transform.position + transform.forward * stride);
+            Vector3 remaining = Vector3.ProjectOnPlane(destination - transform.position, Vector3.up);
+            remainingWalkDistance = remaining.magnitude;
+            remainingWalkAngle = HeadingChange(transform.forward, remaining);
         }
 
         private void LateUpdate()
@@ -423,12 +436,11 @@ namespace Wjy.DogTraining
             foreach (var entry in bindPositions) entry.Key.localPosition = entry.Value;
             float sitTarget = IsPerforming && CurrentAction == "sit" ? 1f : 0f;
             float crouchTarget = IsPerforming && (CurrentAction == "crouch" || CurrentAction == "rest") ? 1f : 0f;
-            float angerTarget = IsPerforming && CurrentAction == "refuse" && actionAge < 1.7f ? 1f : 0f;
             float dt = Time.deltaTime;
             if (IsPerforming && CurrentAction == "restSpot") crouchTarget = restSpotCrouch;
+            if (!IsPerforming) crouchTarget = Mathf.Max(crouchTarget, GroomLowering);
             sitBlend = EasePose(ref sitPhase, sitTarget, dt, .54f, .48f);
             crouchBlend = EasePose(ref crouchPhase, crouchTarget, dt, .60f, .53f);
-            angerBlend = Blend(angerBlend, angerTarget, dt, 12f);
             pickupBlend = Blend(pickupBlend, loweringToPickUp ? 1f : 0f, dt, 12f);
             float pawTarget = IsPerforming && CurrentAction == "paw" ? 1f : 0f;
             pawBlend = EasePose(ref pawPhase, pawTarget, dt, .53f, .46f);
@@ -454,7 +466,9 @@ namespace Wjy.DogTraining
             lastRootPosition = transform.position;
             lastRootForward = transform.forward;
             groundHeight = transform.position.y;
-            float distance = travel.magnitude + 0.32f * Mathf.Abs(yaw) * Mathf.Deg2Rad;
+            // Travel and turning share one stride clock. Summing the two counted every curving step twice.
+            float turningArc = .22f * yaw * Mathf.Deg2Rad;
+            float distance = Mathf.Sqrt(travel.sqrMagnitude + turningArc * turningArc);
             float walkWeight = 1f - Mathf.Max(Mathf.Max(sitBlend, crouchBlend), Mathf.Max(pawBlend, bowBlend));
             bool walking = dt > 0f && distance / dt > 0.015f && (walkWeight > 0.55f || CurrentAction == "restSpot");
             locomotionBlend = Blend(locomotionBlend, walking ? 1f : 0f, dt, 9f);
@@ -488,6 +502,8 @@ namespace Wjy.DogTraining
             ApplyWalkingTorso();
             ApplyGaitRoll(Bone("DEF-chest"), 4f * pawWeight);
             ApplyHeadPose(dt);
+            ApplySocialAttention(dt, walking);
+            ApplyExplorationGlance(dt, walking);
             float breath = Mathf.Sin(Time.time * 2.35f) * (1f - locomotionBlend) * (1f - pickupBlend);
             AddPlayPitch("DEF-chest", breath * .85f);
             AddPlayPitch("DEF-neck.01", -breath * .65f);
@@ -495,15 +511,16 @@ namespace Wjy.DogTraining
             Yaw("DEF-head", 5f * pawLift);
             AnimateTail(dt);
             float bodyDrop = sitBlend * 0.194f + crouchBlend * 0.212f + bowBlend * 0.035f + pickupBlend * 0.11f;
-            float carriage = Mathf.Lerp(.019f, .033f, trotBlend);
+            bodyDrop += .039f * GroomReach;
+            float carriage = breed.IsOriginal ? Mathf.Lerp(.043f, .062f, trotBlend) : Mathf.Lerp(.019f, .033f, trotBlend);
             float suspension = Mathf.Lerp(.0038f, .0115f, trotBlend);
             bodyDrop += (carriage + Mathf.Cos(gaitCycle * 4f * Mathf.PI) * suspension) * locomotionBlend;
             visual.position += (Vector3.down * bodyDrop - transform.right * (.038f * pawWeight)) * bodyScale;
             ApplyPlayPose();
             UpdateFootContacts(walking, travel, yaw, distance, pawLift, dt, previousTrotBlend, travelSpeed, turnRate);
             coatCorrectives?.Apply(sitBlend, crouchBlend, bowBlend, pawBlend, pickupBlend);
-            if (smoke != null)
-                smoke.transform.position = (head != null ? head.position : transform.position + Vector3.up * 0.8f) + Vector3.up * 0.19f;
+            UpdatePuzzleMark();
+            UpdatePawGrooming();
             if (carrying && carriedObject != null && MuzzleAnchor != null)
                 carriedObject.SetPositionAndRotation(MuzzleAnchor.position, transform.rotation);
         }
@@ -539,7 +556,7 @@ namespace Wjy.DogTraining
             float facing = user == null ? 0f : HeadingChange(transform.forward, user.position - head.position);
             petLookYaw = Blend(petLookYaw, Mathf.Clamp(facing, -30f, 30f) * petBlend, dt, 9f);
             Bend("DEF-head", pickupBlend * 10f - bowBlend * 10f - petBlend * 4f);
-            Yaw("DEF-head", Mathf.Sin(actionAge * 13f) * 9f * angerBlend + petLookYaw + torsoTurn * 5f);
+            Yaw("DEF-head", petLookYaw + torsoTurn * 5f);
             Vector3 rollAxis = head.parent.InverseTransformDirection(transform.forward);
             float tilt = petBlend * (5f + 0.08f * petLookYaw);
             head.localRotation = Quaternion.AngleAxis(tilt, rollAxis) * head.localRotation;
@@ -556,7 +573,7 @@ namespace Wjy.DogTraining
             float wag = rise * fall;
             float frequency = Mathf.Lerp(1.25f, 2.25f, fall);
             tailWagPhase = Mathf.Repeat(tailWagPhase + dt * frequency * Mathf.PI * 2f, Mathf.PI * 2f);
-            tailCarriage = Blend(tailCarriage, wag * 19f - angerBlend * 7f - crouchBlend * 4f, dt, 11f);
+            tailCarriage = Blend(tailCarriage, wag * 19f - crouchBlend * 4f, dt, 11f);
 
             for (int index = 0; index < tailBones.Length; index++)
             {
@@ -602,26 +619,12 @@ namespace Wjy.DogTraining
             float pace = Mathf.InverseLerp(.35f, .90f, travelSpeed);
             float strideLength = Mathf.Lerp(Mathf.Lerp(.41f, .51f, pace), Mathf.Lerp(.52f, .62f,
                 Mathf.InverseLerp(1.02f, 1.85f, travelSpeed)), trotBlend);
-            strideLength = Mathf.Lerp(strideLength, .34f, Mathf.InverseLerp(28f, 125f, turnRate));
+            strideLength = Mathf.Lerp(strideLength, .37f, Mathf.InverseLerp(25f, 95f, turnRate));
             // Shorter first steps keep the initial supports close while the dog gathers speed.
             strideLength *= Mathf.Lerp(.72f, 1f, Mathf.SmoothStep(0f, 1f, gaitCycle)) * strideScale;
             float stance = Mathf.Lerp(StanceFraction, TrotStanceFraction, trotBlend);
-            if (walking)
-            {
-                stillTime = 0f;
-                gaitCycle += Mathf.Min(distance / strideLength, 0.2f);
-                gaitActive = true;
-            }
-            else
-            {
-                stillTime += dt;
-                if (gaitActive && stillTime > 0.16f)
-                {
-                    // Stop generating steps while any raised paw completes its swing.
-                    gaitActive = false;
-                    gaitCycle = -0.0001f;
-                }
-            }
+            // Preserve phase at rest so shoulder, tail and suspension can fade in place.
+            if (walking) gaitCycle += Mathf.Min(distance / strideLength, 0.2f);
 
             bool posing = sitBlend + crouchBlend + pawBlend + bowBlend + pickupBlend > 0.01f;
             bool pouncing = IsPerforming && CurrentAction == "pounce";
@@ -650,16 +653,15 @@ namespace Wjy.DogTraining
                         foot.SwingStart = foot.Contact;
                         foot.SwingProgress = 0f;
                         // Put touchdown ahead of neutral, leaving equal room on either end of stance.
-                        foot.SwingFraction = replant ? Mathf.Min(1f - stance, .23f) : 1f - stance;
+                        foot.SwingFraction = replant ? Mathf.Min(1f - stance, .30f) : 1f - stance;
                         foot.SwingHeight = Mathf.Lerp(foot.Front ? .048f : .042f, foot.Front ? .096f : .083f, trotBlend) * bodyScale;
-                        float forecast = strideLength * (1f - stance * 0.5f) / distance;
-                        float anticipatedYaw = Mathf.Clamp(yaw * forecast, -25f, 25f);
-                        Vector3 advance = Vector3.ClampMagnitude(travel * forecast, Mathf.Lerp(.37f, .53f, trotBlend));
-                        foot.Landing = transform.position + Quaternion.AngleAxis(anticipatedYaw, Vector3.up) *
-                            (FootGoal(foot) - transform.position) + advance;
-                        if (replant) foot.Landing = KeepFootOnOwnSide(foot, foot.Landing);
+                        foot.Landing = PredictFootLanding(foot, travel, yaw, distance, strideLength, stance);
                     }
-                    if (!foot.Planted) AdvanceSwing(foot, (gaitCycle - lastCycle) / foot.SwingFraction);
+                    if (!foot.Planted)
+                    {
+                        AdvanceSwing(foot, (gaitCycle - lastCycle) / foot.SwingFraction);
+                        if (foot.Planted) foot.LandedAt = Time.time;
+                    }
                     goal = foot.Contact;
                     if (Mathf.Abs(yaw) > 0.3f || Mathf.Abs(torsoTurn) > 0.06f)
                         goal = KeepFootOnOwnSide(foot, goal);
@@ -667,10 +669,11 @@ namespace Wjy.DogTraining
                 else if (posing)
                 {
                     float raised = foot.Front && foot.Right ? pawLift : 0f;
+                    float groomTuck = foot.Front && foot.Right == (microActionSide > 0f) ? GroomReach : 0f;
                     float foreOffset = crouchBlend * .15f + bowBlend * .17f + pickupBlend * .035f;
                     float rearOffset = sitBlend * .075f + crouchBlend * .035f;
-                    Vector3 poseGoal = FootGoal(foot, (foot.Front ? foreOffset + raised * .056f : rearOffset) * bodyScale,
-                        raised * .16f * bodyScale);
+                    Vector3 poseGoal = FootGoal(foot, (foot.Front ? foreOffset + raised * .056f - groomTuck * .081f : rearOffset) * bodyScale,
+                        (raised * .16f + groomTuck * .039f) * bodyScale);
                     if (pawBlend > .01f && raised == 0f && foot.Planted)
                         poseGoal = foot.Contact;
                     foot.Contact = Vector3.MoveTowards(foot.Contact, poseGoal, dt * 1.3f);
@@ -701,7 +704,7 @@ namespace Wjy.DogTraining
                     foot.Tip.rotation = Quaternion.Slerp(neutral, foot.Tip.rotation, EaseBetween(0f, .7f, pawLift));
                     continue;
                 }
-                if (walking && foot.Front && !foot.Planted && !spinning)
+                if (!breed.IsOriginal && walking && foot.Front && !foot.Planted && !spinning)
                 {
                     float swing = Mathf.Sin(Mathf.PI * foot.SwingProgress);
                     PlaceFoot(foot, goal);
@@ -716,6 +719,7 @@ namespace Wjy.DogTraining
                 // The tip is the IK endpoint, so leveling the digits does not move the contact.
                 float orientationLimit = foot.Planted ? 55f : 36f;
                 foot.Tip.rotation = Quaternion.RotateTowards(foot.Tip.rotation, neutral, orientationLimit);
+                foot.SupportError = foot.Planted ? Vector3.Distance(foot.Tip.position, goal) : 0f;
             }
         }
 
@@ -870,13 +874,11 @@ namespace Wjy.DogTraining
                     action == "pounce" ? "前爪轻轻扑向前方" : action == "sniff" ? "低头嗅闻" :
                     action == "burst" ? "在草地上兴奋地小跑" : action == "rest" ? "趴下休息" :
                     action == "pet" ? "探头回应抚摸" : "歪头，暂时没跟上口令";
-                if (action == "refuse") { smoke.Play(); smoke.Emit(12); }
-                float duration = action == "spin" ? SpinDuration : action == "refuse" ? 1.7f : action == "rest" ? 2f :
+                float duration = action == "spin" ? SpinDuration : action == "refuse" ? 2.1f : action == "rest" ? 2f :
                     action == "pet" ? PetDuration : action == "pounce" ? PounceDuration : action == "sniff" ? SniffDuration :
                     action == "burst" ? BurstDuration + .24f : action == "invite" ? 2.04f : 1.1f;
                 yield return new WaitForSeconds(duration);
                 if (version != actionVersion) yield break;
-                if (action == "refuse") smoke.Stop(true, ParticleSystemStopBehavior.StopEmitting);
                 if (action == "pounce" || action == "burst" || action == "invite" || action == "sniff")
                     LastPlaySucceeded = action != "burst" || !burstStopped;
             }
@@ -1027,8 +1029,9 @@ namespace Wjy.DogTraining
             actionVersion++;
             followingWalk = false;
             IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
-            sitBlend = crouchBlend = angerBlend = pickupBlend = pawBlend = bowBlend = 0f;
+            sitBlend = crouchBlend = pickupBlend = pawBlend = bowBlend = 0f;
             sitPhase = crouchPhase = pawPhase = 0f;
+            ResetSocialAttention();
             petBlend = petLookYaw = tailWagPhase = tailCarriage = 0f;
             turnIntent = torsoTurn = 0f;
             tailWagAge = TailWagDuration;
@@ -1037,7 +1040,8 @@ namespace Wjy.DogTraining
             loweringToPickUp = false;
             LastFetchSucceeded = LastComeSucceeded = false;
             RestoreLollipop();
-            if (smoke != null) smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            ResetExploration();
+            UpdatePuzzleMark();
             if (allowWandering) ChooseDestination(false); else SetWanderingEnabled(false); pauseUntil = 0;
         }
 
@@ -1092,8 +1096,8 @@ namespace Wjy.DogTraining
             carrying = false;
             carriedObject = null;
             restorePropAt = 0f;
-            if (lollipop != null) lollipop.SetPositionAndRotation(lollipopHome, Quaternion.identity);
-            if (ball != null) ball.SetPositionAndRotation(ToyStation + Vector3.up * 0.11f, Quaternion.identity);
+            ResetFetchProp(lollipop, lollipopHome);
+            ResetFetchProp(ball, ToyStation + Vector3.up * .11f);
         }
 
         private IEnumerator ComeToOwner(int version)
@@ -1115,18 +1119,25 @@ namespace Wjy.DogTraining
             Transform item = toy ? ball : lollipop;
             if (item == null || MuzzleAnchor == null || user == null)
             {
-                StateLabel = "目前无法叼取棒棒糖";
+                StateLabel = "目前无法叼取玩具";
                 yield break;
             }
 
-            RestoreLollipop();
-            string itemName = toy ? "玩具球" : "棒棒糖";
+            var physical = item.GetComponent<DogToyBody>();
+            if (physical == null) RestoreLollipop();
+            string itemName = physical != null ? physical.Label : toy ? "玩具球" : "棒棒糖毛绒玩具";
+            if (physical != null && !physical.CanFetch)
+            {
+                StateLabel = "等" + itemName + "落稳后再叼回来";
+                yield break;
+            }
             Vector3 home = item.position;
             StateLabel = "去取" + itemName;
             Vector3 approach = transform.position - home;
             approach.y = 0f;
             if (approach.sqrMagnitude < 0.01f) approach = -transform.forward;
-            Vector3 pickupSpot = Limit(home + approach.normalized * 0.44f);
+            float approachDistance = Mathf.Lerp(.34f, .44f, Mathf.Clamp01(bodyScale));
+            Vector3 pickupSpot = Limit(home + approach.normalized * approachDistance);
             yield return Travel(pickupSpot, false, version);
             if (version != actionVersion) yield break;
             if (FlatDistance(transform.position, pickupSpot) > 0.15f)
@@ -1144,7 +1155,8 @@ namespace Wjy.DogTraining
             }
             if (version != actionVersion) yield break;
             loweringToPickUp = false;
-            if (Vector3.Distance(MuzzleAnchor.position, item.position) > PickupReach)
+            if (Vector3.Distance(MuzzleAnchor.position, item.position) > PickupReach ||
+                (physical != null && !physical.TryHold(DogToyHolder.Dog)))
             {
                 StateLabel = "够不到" + itemName + "，停下来等你";
                 yield break;
@@ -1157,17 +1169,28 @@ namespace Wjy.DogTraining
             if (version != actionVersion) yield break;
             if (IsNearOwner())
             {
-                item.SetPositionAndRotation(transform.position + transform.forward * 0.47f + Vector3.up * 0.09f,
-                    transform.rotation);
+                Vector3 dropSpot = transform.position + transform.forward * .47f + Vector3.up * .09f;
+                if (physical != null) physical.ReleaseFromDog(dropSpot, transform.rotation);
+                else
+                {
+                    item.SetPositionAndRotation(dropSpot, transform.rotation);
+                    restorePropAt = Time.time + 8f;
+                }
                 carrying = false;
-                restorePropAt = Time.time + 8f;
+                carriedObject = null;
                 LastFetchSucceeded = true;
                 StateLabel = "把" + itemName + "放到了你面前";
             }
             else
             {
-                RestoreLollipop();
-                StateLabel = "没能走到你身边，把" + itemName + "留在取物垫上";
+                if (physical == null) RestoreLollipop();
+                else
+                {
+                    physical.ReleaseFromDog(transform.position + transform.forward * .35f + Vector3.up * .1f, transform.rotation);
+                    carrying = false;
+                    carriedObject = null;
+                }
+                StateLabel = "没能走到你身边，先把" + itemName + "放下了";
             }
         }
 
@@ -1208,14 +1231,19 @@ namespace Wjy.DogTraining
             return Vector3.Distance(from, to);
         }
 
-        private float TurnTowards(Vector3 position, float dt)
+        private float TurnTowards(Vector3 position, float dt, float relaxedCone = 0f)
         {
             Vector3 offset = position - transform.position;
             offset.y = 0f;
             if (offset.sqrMagnitude <= 0.0001f) return 0f;
             float angle = HeadingChange(transform.forward, offset);
-            float rate = Mathf.Lerp(84f, 153f, Mathf.InverseLerp(12f, 78f, Mathf.Abs(angle)));
-            float step = Mathf.Clamp(angle, -dt * rate, dt * rate);
+            float remaining = Mathf.Max(0f, Mathf.Abs(angle) - relaxedCone);
+            if (Time.frameCount - lastTurnFrame > 1) yawSpeed = 0f;
+            lastTurnFrame = Time.frameCount;
+            const float angularAcceleration = 550f;
+            float requested = Mathf.Min(88f, Mathf.Sqrt(2f * angularAcceleration * remaining)) * Mathf.Sign(angle);
+            yawSpeed = Mathf.MoveTowards(yawSpeed, requested, angularAcceleration * dt);
+            float step = Mathf.Clamp(yawSpeed * dt, -remaining, remaining);
             turnIntent = Mathf.Clamp(angle / 55f, -1f, 1f);
             transform.rotation = Quaternion.AngleAxis(step, Vector3.up) * transform.rotation;
             return angle;
@@ -1231,37 +1259,6 @@ namespace Wjy.DogTraining
             return Mathf.Abs(sin) < 0.00001f && cos < 0f ? 180f : Mathf.Atan2(sin, cos) * Mathf.Rad2Deg;
         }
 
-        private void BuildSmoke()
-        {
-            GameObject effect = new GameObject("Angry steam puffs"); effect.transform.SetParent(transform);
-            smoke = effect.AddComponent<ParticleSystem>(); smoke.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
-            var main = smoke.main; main.playOnAwake = false; main.loop = true;
-            main.startLifetime = new ParticleSystem.MinMaxCurve(0.6f, 1.15f);
-            main.startSpeed = new ParticleSystem.MinMaxCurve(0.3f, 0.55f);
-            main.startSize = new ParticleSystem.MinMaxCurve(0.12f, 0.23f);
-            main.startColor = new Color(0.75f, 0.77f, 0.8f, 0.9f);
-            main.simulationSpace = ParticleSystemSimulationSpace.World; main.maxParticles = 60;
-            main.cullingMode = ParticleSystemCullingMode.AlwaysSimulate;
-            var emission = smoke.emission; emission.rateOverTime = 20;
-            var shape = smoke.shape; shape.shapeType = ParticleSystemShapeType.Cone;
-            shape.angle = 17; shape.radius = 0.07f; shape.rotation = new Vector3(-90, 0, 0);
-            var size = smoke.sizeOverLifetime; size.enabled = true;
-            size.size = new ParticleSystem.MinMaxCurve(1f, AnimationCurve.Linear(0, 0.5f, 1, 1.9f));
-            var color = smoke.colorOverLifetime; color.enabled = true;
-            var gradient = new Gradient();
-            gradient.SetKeys(new[] { new GradientColorKey(Color.white, 0), new GradientColorKey(Color.gray, 1) },
-                new[] { new GradientAlphaKey(0.8f, 0), new GradientAlphaKey(0f, 1) });
-            color.color = gradient;
-            smokeTexture = new Texture2D(32, 32, TextureFormat.RGBA32, false);
-            for (int y = 0; y < 32; y++) for (int x = 0; x < 32; x++)
-            {
-                float d = Vector2.Distance(new Vector2(x, y), new Vector2(15.5f, 15.5f)) / 15.5f;
-                smokeTexture.SetPixel(x, y, new Color(1, 1, 1, Mathf.SmoothStep(0, 1, 1 - Mathf.Clamp01(d))));
-            }
-            smokeTexture.Apply();
-            smokeMaterial = new Material(Shader.Find("Sprites/Default")); smokeMaterial.mainTexture = smokeTexture;
-            smoke.GetComponent<ParticleSystemRenderer>().sharedMaterial = smokeMaterial;
-        }
         private void OnDestroy()
         {
             if (trainingProps != null) Destroy(trainingProps.gameObject);
@@ -1269,8 +1266,7 @@ namespace Wjy.DogTraining
             if (candyMaterial != null) Destroy(candyMaterial);
             if (stickMaterial != null) Destroy(stickMaterial);
             if (coat != null) Destroy(coat);
-            if (smokeMaterial != null) Destroy(smokeMaterial);
-            if (smokeTexture != null) Destroy(smokeTexture);
+            DisposeExpressions();
         }
     }
 }

@@ -10,9 +10,13 @@ namespace Wjy.DogTraining
     public sealed class Dog2SpeechInput : MonoBehaviour
     {
         public event Action<string> TranscriptReady;
-        public string transcriptionEndpoint = "http://127.0.0.1:8765/transcribe";
+        public string transcriptionEndpoint = "http://127.0.0.1:18765/transcribe";
         public string microphoneDevice = "";
         public bool autoStartLocalService = true;
+        public bool PreferHeadsetMicrophone;
+        public string ServiceStatus { get; private set; } = "本地语音准备中";
+        public string SelectedMicrophoneLabel => "麦克风：" +
+            (string.IsNullOrEmpty(microphoneDevice) ? (PreferHeadsetMicrophone ? "自动选择头显 / 系统默认" : "系统默认") : microphoneDevice);
         public bool IsListening { get; private set; }
         public bool IsFinalizing { get; private set; }
         public string Status { get; private set; } = "语音待机";
@@ -30,8 +34,27 @@ namespace Wjy.DogTraining
         private System.Diagnostics.Process ownedService;
         private readonly float[] meter = new float[256];
         private const int MaxSeconds = 60;
-        [Serializable] private sealed class Health { public string service; public bool ready; public string error; }
+        [Serializable] private sealed class Health { public string service; public bool ready; public string error; public string model; }
         [Serializable] private sealed class Transcript { public string text; public string error; }
+        private void Awake() { microphoneDevice = PlayerPrefs.GetString("CityDogMicrophone", ""); }
+        public void CycleMicrophone()
+        {
+            if (IsListening || IsFinalizing) return;
+            string[] devices = Microphone.devices;
+            int next = Array.IndexOf(devices, microphoneDevice) + 1;
+            microphoneDevice = next >= devices.Length ? "" : devices[next];
+            PlayerPrefs.SetString("CityDogMicrophone", microphoneDevice); PlayerPrefs.Save();
+            Status = SelectedMicrophoneLabel;
+        }
+        public void WarmUp()
+        {
+            if (checkingService || serviceReady) return;
+            if (!ValidEndpoint()) { ServiceStatus = "语音地址须为本机 HTTP 或 HTTPS 服务。"; return; }
+            serviceError = ""; checkingService = true; ServiceStatus = "正在预热本地中文语音";
+            StartCoroutine(EnsureService(session));
+        }
+        private bool ValidEndpoint() => Uri.TryCreate(transcriptionEndpoint, UriKind.Absolute, out Uri address) &&
+            (address.Scheme == "https" || (address.Scheme == "http" && address.IsLoopback)) && string.IsNullOrEmpty(address.UserInfo);
 
         public static string JoinTranscript(string confirmed, string partial)
         {
@@ -44,13 +67,12 @@ namespace Wjy.DogTraining
         {
             if (IsListening || IsFinalizing) return;
             if (Microphone.devices.Length == 0) { Fail("没有找到麦克风。请检查设备连接和 Windows 麦克风权限。"); return; }
-            if (!Uri.TryCreate(transcriptionEndpoint, UriKind.Absolute, out Uri address) ||
-                (address.Scheme != "https" && !(address.Scheme == "http" && address.IsLoopback)) ||
-                !string.IsNullOrEmpty(address.UserInfo))
+            if (!ValidEndpoint())
             { Fail("语音地址须为本机 HTTP 或 HTTPS 服务。"); return; }
-            session++; LiveText = ""; InputLevel = 0;
+            // A warm-up health request belongs to this capture until it completes.
+            LiveText = ""; InputLevel = 0;
             recordingDevice = string.IsNullOrWhiteSpace(microphoneDevice) ? null : microphoneDevice;
-            if (recordingDevice == null)
+            if (recordingDevice == null && PreferHeadsetMicrophone)
                 foreach (string name in Microphone.devices)
                     if (name.IndexOf("Oculus", StringComparison.OrdinalIgnoreCase) >= 0 ||
                         name.IndexOf("Quest", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -60,12 +82,13 @@ namespace Wjy.DogTraining
             ActiveMicrophone = recordingDevice ?? "Windows 默认麦克风";
             try
             {
-                recording = Microphone.Start(recordingDevice, false, MaxSeconds, 16000);
+                Microphone.GetDeviceCaps(recordingDevice, out int minimum, out int maximum);
+                int frequency = maximum == 0 ? 16000 : Mathf.Clamp(16000, minimum, maximum);
+                recording = Microphone.Start(recordingDevice, false, MaxSeconds, frequency);
                 if (recording == null) { Fail("麦克风录音启动失败，请检查 Windows 桌面应用麦克风权限。"); return; }
                 startedAt = Time.realtimeSinceStartup; IsListening = true;
-                Status = "正在录音 · " + ActiveMicrophone;
-                serviceReady = false; serviceError = ""; checkingService = true;
-                StartCoroutine(EnsureService(session));
+                Status = "麦克风启动中，看到音量后开始说话 · " + ActiveMicrophone;
+                WarmUp();
             }
             catch (Exception e) { Fail("录音启动失败：" + e.Message); }
         }
@@ -73,6 +96,7 @@ namespace Wjy.DogTraining
         {
             if (!IsListening || recording == null) return;
             int position = Microphone.GetPosition(recordingDevice);
+            if (position > 0) Status = "正在录音 · " + ActiveMicrophone;
             if (Time.realtimeSinceStartup >= nextMeter)
             {
                 nextMeter = Time.realtimeSinceStartup + 0.1f;
@@ -90,20 +114,28 @@ namespace Wjy.DogTraining
         public void StopAndSend()
         {
             if (!IsListening || recording == null) return;
+            IsListening = false; IsFinalizing = true;
+            Status = "正在收好句尾……";
+            StartCoroutine(FinishCapture(session));
+        }
+        private IEnumerator FinishCapture(int current)
+        {
+            // Keep the last consonant/syllable when the controller or V is released.
+            yield return new WaitForSecondsRealtime(.18f);
+            if (current != session || recording == null) yield break;
             int frames = Microphone.GetPosition(recordingDevice);
             Microphone.End(recordingDevice);
             var clip = recording; recording = null;
-            IsListening = false; IsFinalizing = true;
             if (frames <= 0 || frames < clip.frequency / 5)
-            { Destroy(clip); Fail("录音太短，本轮未发送。请开始录音后说一句完整的话。"); return; }
+            { Destroy(clip); Fail("录音太短，本轮未发送。请开始录音后说一句完整的话。"); yield break; }
             frames = Mathf.Min(frames, clip.samples);
             var samples = new float[frames * clip.channels];
             if (!clip.GetData(samples, 0))
-            { Destroy(clip); Fail("读取麦克风录音失败。"); return; }
+            { Destroy(clip); Fail("读取麦克风录音失败。"); yield break; }
             byte[] wav = EncodeWav(samples, frames, clip.channels, clip.frequency);
             Destroy(clip);
             Status = "录音结束，正在用本地 Whisper 转成中文……";
-            StartCoroutine(Transcribe(wav, session));
+            yield return Transcribe(wav, current);
         }
         public static byte[] EncodeWav(float[] samples, int frames, int channels, int frequency)
         {
@@ -141,7 +173,7 @@ namespace Wjy.DogTraining
                         if (health == null || health.service != "wjy-dog2-whisper-v1")
                         { serviceError = "语音服务地址上的程序不是 Dog2 Whisper 服务。"; break; }
                         if (!string.IsNullOrEmpty(health.error)) { serviceError = health.error; break; }
-                        if (health.ready) { serviceReady = true; break; }
+                        if (health.ready) { serviceReady = true; ServiceStatus = "本地 Whisper " + (health.model ?? "base") + " 已就绪"; break; }
                     }
                     else if (!triedStart)
                     {
@@ -156,12 +188,14 @@ namespace Wjy.DogTraining
             {
                 checkingService = false;
                 if (!serviceReady && string.IsNullOrEmpty(serviceError)) serviceError = "本地 Whisper 服务启动超时，请查看 SpeechService/Logs~/service.log。";
+                if (!serviceReady) ServiceStatus = serviceError;
             }
         }
         private bool TryStartService(int port)
         {
             try
             {
+                if (ownedService != null && !ownedService.HasExited) return true;
                 string folder = Application.isEditor ?
                     Path.Combine(Application.dataPath, "wjy_workspace/Dog2/SpeechService") :
                     Path.GetFullPath(Path.Combine(Application.dataPath, "../SpeechService"));
@@ -194,13 +228,13 @@ namespace Wjy.DogTraining
             using (var request = new UnityWebRequest(transcriptionEndpoint, "POST"))
             {
                 request.uploadHandler = new UploadHandlerRaw(wav);
-                request.downloadHandler = new DownloadHandlerBuffer(); request.timeout = 35; request.redirectLimit = 0;
+                request.downloadHandler = new DownloadHandlerBuffer(); request.timeout = 90; request.redirectLimit = 0;
                 request.SetRequestHeader("Content-Type", "audio/wav");
                 activeRequest = request;
                 yield return request.SendWebRequest(); activeRequest = null;
                 if (current != session) yield break;
                 if (request.result != UnityWebRequest.Result.Success)
-                { Fail("本地语音识别失败（HTTP " + request.responseCode + "），本轮未发送。请查看语音服务日志。"); yield break; }
+                { serviceReady = false; Fail("本地语音识别失败（HTTP " + request.responseCode + "），本轮未发送；下次录音会重新连接。"); yield break; }
                 Transcript result = null;
                 try { result = JsonUtility.FromJson<Transcript>(request.downloadHandler.text); } catch (Exception) { }
                 LiveText = result != null ? (result.text ?? "").Trim() : "";
@@ -214,8 +248,9 @@ namespace Wjy.DogTraining
         public void Cancel()
         {
             bool hadSpeech = IsListening || IsFinalizing;
-            session++; StopAllCoroutines(); checkingService = false;
+            session++;
             if (activeRequest != null) activeRequest.Abort(); activeRequest = null;
+            StopAllCoroutines(); checkingService = false;
             if (recording != null) { Microphone.End(recordingDevice); Destroy(recording); recording = null; }
             IsListening = IsFinalizing = false; InputLevel = 0; LiveText = "";
             Status = hadSpeech ? "本轮语音已取消，没有发送。" : "当前没有正在采集的语音。";

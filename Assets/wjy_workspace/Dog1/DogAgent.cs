@@ -32,7 +32,7 @@ namespace KeepADog.Demo
     public sealed class DogAgent
     {
         public const string Lollipop = "lollipop";
-        public const string TeachExample = "我心情不好的时候，给我叼来一颗棒棒糖";
+        public const string TeachExample = "我心情不好的时候，给我叼来棒棒糖毛绒玩具";
         public const string RecallExample = "我今天心情不好";
 
         private const int MaxInputLength = 400;
@@ -194,7 +194,7 @@ namespace KeepADog.Demo
             Remember("你说：" + (input.Length <= 54 ? input : input.Substring(0, 54) + "…"));
             Interpretation outcome = interpretation ?? Interpret(input);
             if (outcome == null)
-                return Wait("汪？我还没听懂。可以教我坐下、转圈、轻扑一下、闻一闻，或叼棒棒糖。");
+                return Wait("汪？我还没听懂。可以教我坐下、转圈、闻一闻，或叼回毛绒玩具。");
 
             switch (outcome.Kind)
             {
@@ -283,6 +283,8 @@ namespace KeepADog.Demo
 
             if (sad && conditional && intent != DogIntent.Wait)
                 return new Interpretation(SpeechKind.Teach, intent, target);
+            if (intent != DogIntent.Wait && Matches(lower, @"^你(会|懂|学会).{1,18}(吗|么|[?？])[。?？ ]*$"))
+                return new Interpretation(SpeechKind.Chat, reply: "麦粒歪头听着。你可以给它一个口令，等它试试看。");
             if (intent != DogIntent.Wait)
                 return new Interpretation(SpeechKind.Command, intent, target);
             if (sad && conditional)
@@ -309,7 +311,7 @@ namespace KeepADog.Demo
                 case DogIntent.Crouch: return "蹲伏";
                 case DogIntent.Spin: return "转圈";
                 case DogIntent.Come: return "过来";
-                case DogIntent.Fetch: return target == Lollipop ? "叼来棒棒糖" : "取回物品";
+                case DogIntent.Fetch: return target == Lollipop ? "叼来棒棒糖毛绒玩具" : "取回物品";
                 case DogIntent.FetchBall: return "叼来玩具球";
                 case DogIntent.Paw: return "抬右爪";
                 case DogIntent.Bow: return "伏身邀玩";

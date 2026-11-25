@@ -118,7 +118,7 @@ namespace Wjy.DogTraining
                 case "pounce": return "轻扑一下";
                 case "sniff": return "闻一闻";
                 case "fetch_toy": return "叼球";
-                case "fetch_lollipop": return "叼棒棒糖";
+                case "fetch_lollipop": return "叼棒棒糖毛绒玩具";
                 default: return "等待";
             }
         }
@@ -137,7 +137,7 @@ namespace Wjy.DogTraining
                 case "轻扑": case "轻扑一下": case "往前扑一下": return "pounce";
                 case "闻一闻": case "闻闻": case "嗅闻": return "sniff";
                 case "叼球": case "叼来球": case "叼来玩具球": return "fetch_toy";
-                case "叼棒棒糖": case "叼来棒棒糖": return "fetch_lollipop";
+                case "叼棒棒糖": case "叼来棒棒糖": case "叼棒棒糖毛绒玩具": case "叼来棒棒糖毛绒玩具": return "fetch_lollipop";
                 default: return null;
             }
         }

@@ -4,14 +4,14 @@ namespace Wjy.DogTraining
 {
     public sealed partial class DogCompanion
     {
-        private DogBreed breed = DogBreed.Options[0];
+        private DogBreed breed = DogBreed.Shepherd;
         private float bodyScale = 1f;
         internal DogBreed Breed => breed;
 
         internal void SetBreedBeforeActivation(DogBreed choice)
         {
             breed = choice ?? DogBreed.Options[0];
-            bodyScale = breed.Height / DogBreed.Options[0].Height;
+            bodyScale = breed.Height / DogBreed.ShepherdHeight;
         }
 
         private void BindImportedRig()

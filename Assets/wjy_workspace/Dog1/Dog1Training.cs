@@ -20,6 +20,7 @@ namespace Wjy.DogTraining
         private DogLifeProgress life;
         private DogRoutines routines;
         private DogNeighborhood world;
+        private DogScenePerception perception;
         private Camera viewCamera;
         private Dog1PlayerView view;
         private Transform waste, walkMarker;
@@ -55,6 +56,7 @@ namespace Wjy.DogTraining
             speech.TranscriptReady += SubmitVoiceTranscript;
             quiet = PlayerPrefs.GetInt("CityDogQuiet", 0) != 0;
             SetupAudio();
+            perception = gameObject.AddComponent<DogScenePerception>();
             sessionKey = Environment.GetEnvironmentVariable("KEEP_A_DOG_API_KEY") ?? "";
             Transform oldSphere = transform.Find("Dog Placeholder Sphere");
             if (oldSphere != null) oldSphere.gameObject.SetActive(false);
@@ -77,11 +79,13 @@ namespace Wjy.DogTraining
                 if (!dog.Ready && !savedBreed.IsOriginal)
                 {
                     Destroy(dog.gameObject);
-                    dog = CreateCompanion(DogBreed.Options[0]);
+                    dog = CreateCompanion(DogBreed.Shepherd);
                     choosingBreed = true;
                 }
             }
             PlaceActors();
+            SetupHeadset();
+            speech.WarmUp();
             var bonus = life.ClaimDailyBonus();
             if (bonus.Succeeded)
             {
@@ -141,11 +145,14 @@ namespace Wjy.DogTraining
                 world.ConfigureCamera(viewCamera);
                 view.Place(world.PlayerStart);
             }
+            PlaceHeadset();
+            if (HeadsetRig != null) world.ConfigureCamera(HeadsetRig.HeadCamera);
             ConfigureCompanion();
             RefreshWaste();
             nextAutonomy = Time.unscaledTime + 20f;
             nextBurst = Mathf.Max(nextBurst, Time.unscaledTime + 34f);
             sniffAfterPlayUntil = 0f;
+            quietStoryUntil = 0f;
             if (pendingInvitation) ClearTrickReward();
         }
 
@@ -155,6 +162,19 @@ namespace Wjy.DogTraining
             dog.HasPlayClearance = world.HasDogPlayClearance;
             if (keepPose) dog.ConfigurePracticeArea(world.FetchPosition, world.ToyPosition);
             else dog.SetPracticeArea(world.DogStart, world.FetchPosition, world.ToyPosition);
+            var points = new System.Collections.Generic.List<DogCompanion.ExplorationPoint>
+            {
+                new DogCompanion.ExplorationPoint("玩具", world.ToyPosition),
+                new DogCompanion.ExplorationPoint("水碗", world.WaterPosition),
+                new DogCompanion.ExplorationPoint("食盆", world.FoodPosition)
+            };
+            Transform cushion = HomeRestSpot(false);
+            if (cushion != null) points.Add(new DogCompanion.ExplorationPoint("软垫", cushion.position));
+            else points.Add(new DogCompanion.ExplorationPoint("散步路标", world.WalkDestination));
+            dog.SetExplorationPoints(points.ToArray());
+            perception.Dog = dog;
+            perception.RefreshTargets();
+            ConfigurePhysicalProps();
         }
 
         private bool Ready => started && !pause && !choosingBreed && !busy && !walking &&
@@ -162,6 +182,8 @@ namespace Wjy.DogTraining
 
         private void Update()
         {
+            UpdatePhysicalProps();
+            UpdateHeadset();
             if (choosingBreed)
             {
                 if (Input.GetKeyDown(KeyCode.Escape)) CloseBreedPicker();
@@ -196,7 +218,8 @@ namespace Wjy.DogTraining
             if (!started || pause) return;
             if (viewCamera != null)
             {
-                DogCareAction? refill = world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused,
+                DogCareAction? refill = InHeadset ? UpdateHeadsetApartment() :
+                    world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused,
                     Input.GetKeyDown(KeyCode.E), Time.deltaTime);
                 if (refill.HasValue) world.FillBowl(refill.Value);
             }
@@ -222,7 +245,8 @@ namespace Wjy.DogTraining
                     StartCoroutine(FinishWalk());
                 }
             }
-            if (Ready && !VoiceListening && !VoiceFinalizing && Time.unscaledTime >= nextAutonomy && !agent.CanGiveFeedback && !CanRewardTrick)
+            if (Ready && !dog.IsPlayingMicroAction && !VoiceListening && !VoiceFinalizing &&
+                Time.unscaledTime >= nextAutonomy && !agent.CanGiveFeedback && !CanRewardTrick)
             {
                 nextAutonomy = Time.unscaledTime + 26f;
                 StartCoroutine(Autonomy());
@@ -257,6 +281,7 @@ namespace Wjy.DogTraining
             {
                 reply = life.Energy < 30 ? "麦粒自己趴下，想歇一歇。" : "麦粒今天有点没精神，先在你附近安静一会儿。";
                 yield return RestWithFurniture(nextRestInHouse);
+                quietStoryUntil = Time.unscaledTime + 18f;
             }
             else if (Time.unscaledTime < sniffAfterPlayUntil)
             {
@@ -295,17 +320,6 @@ namespace Wjy.DogTraining
                     yield return dog.PerformAction("sniff", 0.25f);
                     if (dog.LastPlaySucceeded) reply = "麦粒低头闻了闻附近的气味。";
                 }
-            }
-            else if (UnityEngine.Random.value < 0.72f)
-            {
-                yield return dog.PerformAction("sniff", 0.25f);
-                if (dog.LastPlaySucceeded) reply = "麦粒低头闻了闻附近的气味。";
-            }
-            else
-            {
-                reply = "麦粒自己去翻玩具，看看你会不会陪它。";
-                yield return dog.PerformAction("fetch_toy", 0.28f);
-                if (dog.LastFetchSucceeded) reply = "麦粒自己叼来球，放在你面前。";
             }
         }
 
@@ -358,7 +372,7 @@ namespace Wjy.DogTraining
             {
                 walking = true;
                 dog.SetWalkingTogether(true);
-                reply = "和麦粒一起走到发光路标。按住右键，用 WASD 往前走。";
+                reply = InHeadset ? "和麦粒一起走到发光路标，用左摇杆走动。" : "和麦粒一起走到发光路标。按住右键，用 WASD 往前走。";
                 walkMarker = CreateMarker("Walk destination", world.WalkDestination, PrimitiveType.Cylinder,
                     new Color(0.35f, 0.95f, 0.53f), new Vector3(0.55f, 0.055f, 0.55f));
                 return;
@@ -476,6 +490,7 @@ namespace Wjy.DogTraining
         internal bool Submit(string input)
         {
             if (!Ready || VoiceListening || VoiceFinalizing || string.IsNullOrWhiteSpace(input)) return false;
+            dog.AttendToUser();
             StartCoroutine(Train(input.Trim()));
             return true;
         }
@@ -485,7 +500,12 @@ namespace Wjy.DogTraining
         private bool VoiceFinalizing => speech != null && speech.IsFinalizing;
         private string VoiceStatus => speech != null ? speech.Status : "语音尚未就绪";
         private string VoiceTranscript => speech != null ? speech.LiveText : "";
-        private void BeginVoice() { if (VoiceAvailable) speech.StartListening(); }
+        private void BeginVoice()
+        {
+            if (!VoiceAvailable) return;
+            speech.StartListening();
+            if (speech.IsListening) dog.AttendToUser(4f);
+        }
         private void EndVoice() { if (VoiceListening) speech.StopAndSend(); }
         private void CancelVoice()
         {
@@ -504,7 +524,7 @@ namespace Wjy.DogTraining
 
         private void OnApplicationFocus(bool focused)
         {
-            if (!focused && VoiceListening) CancelVoice();
+            if (!focused && !InHeadset && VoiceListening) CancelVoice();
         }
 
         private IEnumerator Train(string input)
@@ -517,7 +537,20 @@ namespace Wjy.DogTraining
                 busy = false;
                 yield break;
             }
+            if (IsInvitationReply(input))
+            {
+                yield return ResolveInvitationSpeech(input);
+                yield break;
+            }
             ClearTrickReward();
+            if (input.StartsWith("场景回应", StringComparison.Ordinal) || input.StartsWith("看看我", StringComparison.Ordinal) ||
+                input.StartsWith("看着我", StringComparison.Ordinal) || input.StartsWith("你在看什么", StringComparison.Ordinal))
+            {
+                yield return RespondToScene(input);
+                busy = false;
+                nextAutonomy = Time.unscaledTime + 18f;
+                yield break;
+            }
             string[] recalled = routines.Recall(input);
             if (recalled != null)
             {
@@ -565,6 +598,73 @@ namespace Wjy.DogTraining
             }
             busy = false;
             nextAutonomy = Time.unscaledTime + 18f;
+        }
+
+        private DogSceneObservation CapturePerception()
+        {
+            Vector3? left = null, right = null;
+            if (HeadsetRig != null && HeadsetRig.DisplayRunning)
+            {
+                if (HeadsetRig.TryGetHandPosition(false, out Vector3 leftPosition)) left = leftPosition;
+                if (HeadsetRig.TryGetHandPosition(true, out Vector3 rightPosition)) right = rightPosition;
+            }
+            return perception.Capture(left, right);
+        }
+
+        private IEnumerator RespondToScene(string utterance)
+        {
+            bool wander = dog.WanderingEnabled;
+            dog.HoldIdleGestures = true;
+            dog.SetWanderingEnabled(false);
+            try
+            {
+                float until = Time.time + 4.4f;
+                var observation = CapturePerception();
+                while (!DogPerceptionSelection.CanOffer(observation) && Time.time < until)
+                {
+                    yield return null;
+                    observation = CapturePerception();
+                }
+                DogPerceptionChoice choice;
+                if (useModel && DogPerceptionSelection.CanOffer(observation))
+                {
+                    reply = "麦粒正在看看周围……";
+                    string key = string.IsNullOrWhiteSpace(sessionKey) ? apiKey : sessionKey;
+                    var task = DogPerceptionSelection.SelectAsync(observation, endpoint, model, key, utterance);
+                    while (!task.IsCompleted) yield return null;
+                    choice = task.Status == TaskStatus.RanToCompletion ? task.Result : null;
+                }
+                else choice = DogPerceptionSelection.SelectLocal(observation);
+
+                var current = CapturePerception();
+                if (!DogPerceptionSelection.CanApply(choice, current))
+                    choice = DogPerceptionSelection.SelectLocal(current);
+                if (choice == null || !dog.TryPlayMicroAction(choice.ActionId))
+                {
+                    reply = "麦粒还没找到合适的回应，先停一会儿。";
+                    yield break;
+                }
+                reply = (choice.UsedModel ? "场景选择 · " : "麦粒 · ") + choice.Reply;
+                float finish = Time.time + 4.2f;
+                while (dog.IsPlayingMicroAction && Time.time < finish) yield return null;
+            }
+            finally
+            {
+                if (dog != null)
+                {
+                    dog.HoldIdleGestures = false;
+                    dog.SetWanderingEnabled(wander);
+                }
+            }
+        }
+
+        private IEnumerator ReactToPet()
+        {
+            busy = true;
+            dog.AttendToUser(2.6f, allowTilt: false);
+            reply = "麦粒把头凑向你的手，尾巴轻轻摆动。";
+            try { yield return dog.PerformAction("pet", .22f); }
+            finally { busy = false; nextAutonomy = Time.unscaledTime + 8f; }
         }
 
         private IEnumerator RunRoutine(string[] steps, string name, bool recalled)
@@ -693,6 +793,7 @@ namespace Wjy.DogTraining
 
         private void OnDestroy()
         {
+            DisposePhysicalProps();
             if (speech != null) speech.TranscriptReady -= SubmitVoiceTranscript;
             if (choosingBreed && started) Time.timeScale = timeScaleBeforeBreedPicker;
             if (pause) Time.timeScale = 1f;

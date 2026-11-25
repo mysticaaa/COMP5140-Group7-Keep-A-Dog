@@ -1,0 +1,15 @@
+DEFAULT_BREED_CHECK: default breed is the existing Border Collie model
+DEFAULT_BREED_CHECK: existing weighted mesh is visible
+DEFAULT_BREED_CHECK: head height is calibrated for standing interactions
+DEFAULT_BREED_CHECK: curved route advances with uncrossed paws
+DEFAULT_BREED_CHECK: four paws planted after turning
+DEFAULT_BREED_CHECK: head tilt can be selected
+DEFAULT_BREED_CHECK: head tilt reaches visible articulation
+DEFAULT_BREED_CHECK: action finishes: pet
+DEFAULT_BREED_CHECK: action finishes: paw
+DEFAULT_BREED_CHECK: action finishes: bow
+DEFAULT_BREED_CHECK: action finishes: fetch_toy
+DEFAULT_BREED_CHECK: short muzzle reaches and returns fetch_toy
+DEFAULT_BREED_CHECK: action finishes: fetch_lollipop
+DEFAULT_BREED_CHECK: short muzzle reaches and returns fetch_lollipop
+DOG_DEFAULT_BREED_OK: original Border Collie mesh, curved walking, head tilt, fetch and pet

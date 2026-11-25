@@ -112,7 +112,7 @@ public static class DogGaitValidation
         Vector3[] originalScales = Array.ConvertAll(paws, paw => paw.localScale);
         Vector3[] neutral = null;
         var results = new List<Profile>();
-        foreach (var spec in new[] { ("slow", .55f), ("fast", 1.55f), ("turn", .82f) })
+        foreach (var spec in new[] { ("slow", .55f), ("fast", 1.55f), ("turn", .82f), ("curve", .74f) })
         {
             dog.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             dog.ResetCompanion();
@@ -121,10 +121,22 @@ public static class DogGaitValidation
             var result = new Profile(spec.Item1, dog, paws, joints["DEF-chest"], joints["DEF-head"], neutral);
             results.Add(result);
             bool capturedDuringTurn = false, capturedAfterTurn = false;
+            int nextCapture = 0;
             afterLateUpdate = () =>
             {
                 result.Add();
-                if (capture == null || result.Name != "turn") return;
+                if (capture == null) return;
+                if (result.Name == "curve" && nextCapture < 4 && result.PositiveTurn >= 25f + nextCapture * 35f)
+                {
+                    capture.Take("curve-" + nextCapture.ToString("00"), dog.transform.position);
+                    nextCapture++;
+                }
+                if (result.Name != "turn") return;
+                if (nextCapture < 8 && result.PositiveTurn >= 10f + 12f * nextCapture)
+                {
+                    capture.Take("corner-" + nextCapture.ToString("00"), dog.transform.position);
+                    nextCapture++;
+                }
                 if (!capturedDuringTurn && result.NegativeTurn >= 45f)
                 {
                     capturedDuringTurn = true;
@@ -136,7 +148,9 @@ public static class DogGaitValidation
                     capture.Take("turn-settled");
                 }
             };
-            if (spec.Item1 == "turn")
+            if (spec.Item1 == "curve")
+                yield return FollowCurve(dog, spec.Item2, result);
+            else if (spec.Item1 == "turn")
             {
                 yield return Move(dog, new Vector3(0f, 0f, 1.1f), spec.Item2, result);
                 yield return Move(dog, new Vector3(1.05f, 0f, 1.1f), spec.Item2, result);
@@ -167,6 +181,12 @@ public static class DogGaitValidation
             "Sustained slow steps did not remain separate, or sustained fast steps did not pair diagonally.");
         Require(turn.PositiveTurn > 55f && turn.NegativeTurn > 55f && turn.MaximumChestAngle > 1f,
             "The dog did not physically turn both directions or the torso did not participate.");
+        Require(turn.Cadence < 9f && turn.Landings <= 50,
+            "Cornering regressed to rapidly repeated steps.");
+        Profile curve = results[3];
+        Require(curve.PositiveTurn > 100f && curve.MaximumChestAngle > 1f && curve.Meters > 3f &&
+            curve.Cadence < 7f && curve.ShortStepCount <= 1,
+            "Continuous curving travel did not produce sustained steps and bounded trunk participation.");
         foreach (var result in results)
         {
             Require(result.Landings >= 8 && result.LongestPlant > .095f && result.HighestLift > .035f,
@@ -182,6 +202,20 @@ public static class DogGaitValidation
             Require(result.SettledFrames >= 20 && result.SettledFrames == result.SettledPlantedFrames &&
                 result.SettledDrift < .010f && result.SettledRootDrift < .001f,
                 result.Name + ": front or rear paws kept shuffling after one second at rest.");
+        }
+    }
+
+    private static IEnumerator FollowCurve(DogCompanion dog, float speed, Profile result)
+    {
+        const float radius = 1.8f;
+        for (int frame = 0; frame < 420; frame++)
+        {
+            // A point ahead on a circular path keeps the ordinary destination API moving continuously.
+            float angle = .40f + frame / 60f * .62f / radius;
+            Vector3 target = new Vector3(radius * (1f - Mathf.Cos(angle)), 0f, radius * Mathf.Sin(angle));
+            Walk.Invoke(dog, new object[] { target, speed, Time.deltaTime });
+            result.AddStepTime(Time.deltaTime);
+            yield return null;
         }
     }
 
@@ -205,6 +239,9 @@ public static class DogGaitValidation
         private readonly Vector3[] neutral, plantAnchors = new Vector3[4], settleAnchors = new Vector3[4];
         private readonly float[] plantStarted = new float[4];
         private readonly bool[] planted = new bool[4];
+        private readonly Vector3[] liftPoints = new Vector3[4];
+        private int shortSteps;
+        private float totalStepLength;
         private readonly List<float>[] landings = { new List<float>(), new List<float>(), new List<float>(), new List<float>() };
         private readonly Quaternion idleChest, idleHead;
         private Vector3 lastRoot, settleRoot;
@@ -227,6 +264,7 @@ public static class DogGaitValidation
         public float SupportFrameRatio => (float)supportFrames / Mathf.Max(activeFrames, 1);
         public float RestSeconds => stopTime < 0 ? 0f : Time.time - stopTime;
         public int EligibleLandings { get; private set; }
+        public int ShortStepCount => shortSteps;
         public float DiagonalPairRatio { get; private set; }
 
         public Profile(string name, DogCompanion dog, Transform[] paws, Transform chest, Transform head, Vector3[] neutral)
@@ -299,6 +337,9 @@ public static class DogGaitValidation
                         plantAnchors[i] = position;
                         if (moving)
                         {
+                            float stepLength = Horizontal(liftPoints[i], position);
+                            totalStepLength += stepLength;
+                            if (stepLength < .055f) shortSteps++;
                             Landings++;
                             PawLandings[i]++;
                             if (Name != "turn") landings[i].Add(Time.time);
@@ -320,7 +361,10 @@ public static class DogGaitValidation
                     }
                 }
                 else if (moving)
+                {
+                    if (planted[i]) liftPoints[i] = position;
                     HighestLift = Mathf.Max(HighestLift, local.y - neutral[i].y);
+                }
                 planted[i] = contact;
 
                 if (resting)
@@ -371,6 +415,9 @@ public static class DogGaitValidation
             SettledDrift, SettledRootDrift, string.Join("/", PawLandings),
             string.Join("/", Array.ConvertAll(PlantTimes, interval => interval.ToString("F3", CultureInfo.InvariantCulture))),
             EligibleLandings, a.count, b.count, DiagonalPairRatio, averageLag, worstSlipTime, worstSlipPaw));
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "DOG_GAIT_STEPS {0} shortUnder5_5cm={1}/{2} meanStep={3:F3}m", Name, shortSteps, Landings,
+                totalStepLength / Mathf.Max(1, Landings)));
         }
 
         private static (int count, float lag) PairLandings(List<float> left, List<float> right)
@@ -423,16 +470,16 @@ public static class DogGaitValidation
             floor.GetComponent<Renderer>().sharedMaterial = material;
         }
 
-        public void Take(string stage)
+        public void Take(string stage, Vector3? position = null)
         {
-            Vector3 center = new Vector3(.88f, .12f, 1.82f);
+            Vector3 center = position.HasValue ? position.Value + Vector3.up * .24f : new Vector3(.88f, .12f, 1.82f);
             camera.transform.position = center + new Vector3(0f, 3.5f, 0f);
             camera.transform.rotation = Quaternion.LookRotation(Vector3.down, Vector3.forward);
-            camera.orthographicSize = 1.18f;
+            camera.orthographicSize = position.HasValue ? .91f : 1.18f;
             Save(stage + "-top.png");
             camera.transform.position = center + new Vector3(-2.85f, 2.3f, -2.9f);
             camera.transform.LookAt(center + Vector3.up * .17f);
-            camera.orthographicSize = 1.07f;
+            camera.orthographicSize = position.HasValue ? .84f : 1.07f;
             Save(stage + "-rear.png");
         }
 

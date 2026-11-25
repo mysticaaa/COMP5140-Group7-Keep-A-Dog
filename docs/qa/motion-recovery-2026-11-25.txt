@@ -1,0 +1,55 @@
+Dog1 motion recovery 2026-11-25
+
+Before: latest scene-setup motion implementation
+DOG_GAIT slow travel=3.587m time=6.717s speed=0.534m/s cadence=7.44/s landings=50 longestPlant=0.467s support=99.5 % maxPlantDrift=0.014m maxLift=0.047m yaw=0.0/-0.0 chest=0.0deg head=0.0deg minSignedWidth=0.170m restWidthError=0.000m restPawError=0.012m settled=32/32 restPawDrift=0.0034m restRootDrift=0.0000m landingsByPaw=13/12/13/12 longestPlantsByPaw=0.367/0.467/0.367/0.367s steadyLandings=41 diagonalPairs=0+0 pairRatio=0.0 % avgPairDt=0.000s maxSlipAt=0.467s/DEF-front_toes.R
+DOG_GAIT fast travel=3.586m time=2.567s speed=1.397m/s cadence=15.19/s landings=39 longestPlant=0.267s support=83.1 % maxPlantDrift=0.017m maxLift=0.085m yaw=0.0/-0.0 chest=0.0deg head=0.0deg minSignedWidth=0.167m restWidthError=0.000m restPawError=0.009m settled=33/33 restPawDrift=0.0049m restRootDrift=0.0000m landingsByPaw=10/9/10/10 longestPlantsByPaw=0.183/0.267/0.167/0.200s steadyLandings=22 diagonalPairs=5+6 pairRatio=100.0 % avgPairDt=0.002s maxSlipAt=0.333s/DEF-hind_paw.L
+DOG_GAIT turn travel=3.338m time=5.467s speed=0.611m/s cadence=13.90/s landings=76 longestPlant=0.367s support=99.1 % maxPlantDrift=0.044m maxLift=0.048m yaw=93.6/-112.5 chest=7.5deg head=20.8deg minSignedWidth=0.129m restWidthError=0.000m restPawError=0.009m settled=33/33 restPawDrift=0.0049m restRootDrift=0.0000m landingsByPaw=18/17/21/20 longestPlantsByPaw=0.283/0.367/0.350/0.283s steadyLandings=0 diagonalPairs=0+0 pairRatio=0.0 % avgPairDt=0.000s maxSlipAt=2.717s/DEF-hind_paw.L
+DOG_GAIT_OK
+
+After: restored German Shepherd calibration and conservative turn stride
+DOG_GAIT slow travel=3.585m time=6.667s speed=0.538m/s cadence=4.80/s landings=32 longestPlant=0.567s support=99.5 % maxPlantDrift=0.047m maxLift=0.049m yaw=0.0/-0.0 chest=0.0deg head=0.0deg minSignedWidth=0.167m restWidthError=0.000m restPawError=0.006m settled=33/33 restPawDrift=0.0043m restRootDrift=0.0000m landingsByPaw=8/8/8/8 longestPlantsByPaw=0.550/0.567/0.550/0.567s steadyLandings=26 diagonalPairs=0+0 pairRatio=0.0 % avgPairDt=0.000s maxSlipAt=0.567s/DEF-front_toes.R
+DOG_GAIT fast travel=3.583m time=2.850s speed=1.257m/s cadence=8.77/s landings=25 longestPlant=0.467s support=90.6 % maxPlantDrift=0.089m maxLift=0.083m yaw=0.0/-0.0 chest=0.0deg head=0.0deg minSignedWidth=0.165m restWidthError=0.000m restPawError=0.009m settled=33/33 restPawDrift=0.0049m restRootDrift=0.0000m landingsByPaw=6/6/7/6 longestPlantsByPaw=0.317/0.467/0.300/0.350s steadyLandings=15 diagonalPairs=4+3 pairRatio=93.3 % avgPairDt=0.005s maxSlipAt=0.933s/DEF-front_toes.R
+DOG_GAIT turn travel=3.349m time=5.450s speed=0.614m/s cadence=11.56/s landings=63 longestPlant=0.483s support=99.4 % maxPlantDrift=0.123m maxLift=0.088m yaw=96.1/-117.4 chest=7.5deg head=20.9deg minSignedWidth=0.081m restWidthError=0.000m restPawError=0.009m settled=33/33 restPawDrift=0.0030m restRootDrift=0.0000m landingsByPaw=17/15/16/15 longestPlantsByPaw=0.467/0.483/0.417/0.433s steadyLandings=0 diagonalPairs=0+0 pairRatio=0.0 % avgPairDt=0.000s maxSlipAt=4.867s/DEF-hind_paw.L
+DOG_GAIT_OK
+
+Pose and retarget checks
+original skeleton loaded
+sit forepaws supported
+action completed: sit
+crouch lowers torso
+action completed: crouch
+action completed: spin
+right paw raised with stable supporting paw
+action completed: paw
+play bow lowers front, keeps rump up
+action completed: bow
+action completed: invite
+action completed: sniff
+action completed: pounce
+action completed: burst
+action completed: pet
+action completed: rest
+action completed: refuse
+action completed: come
+action completed: fetch_toy
+physical fetch succeeded: fetch_toy
+action completed: fetch_lollipop
+physical fetch succeeded: fetch_lollipop
+bounded attentive head tilt
+attention does not turn or translate root
+stereo bone links constructed
+breed initialized: german-shepherd
+breed initialized: border-collie
+breed initialized: boxer
+breed initialized: dalmatian
+breed initialized: golden-retriever
+breed initialized: great-dane
+breed initialized: husky
+breed initialized: labrador-retriever
+breed initialized: pitbull
+breed initialized: rottweiler
+breed initialized: shiba-inu
+DOG_MOTION_RECOVERY_OK
+
+Headset / speech regression
+PASS: Dog1 XR world menu, geometric rays, Agent action, care/maps/breeds, pause/resume, real local Chinese ASR -> Agent.

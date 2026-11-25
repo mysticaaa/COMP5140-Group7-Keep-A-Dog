@@ -8,8 +8,6 @@ using UnityEditor;
 using UnityEditor.Build.Reporting;
 using UnityEditor.SceneManagement;
 using UnityEngine;
-using UnityEngine.XR.Management;
-using UnityEditor.XR.Management;
 using Wjy.DogTraining;
 
 [InitializeOnLoad]
@@ -29,26 +27,23 @@ public static class Dog1DemoValidation
         EditorApplication.isPlaying = true;
     }
 
-    public static void BuildWindows()
-    {
-        BuildPlayer("Builds/CityDogVoice", "CityDog.exe", Scene, false);
-    }
+    // Keep existing build commands working while delivering exactly one player.
+    public static void BuildWindows() => BuildDog1PcVr();
+    public static void BuildPcVr() => BuildDog1PcVr();
 
-    public static void BuildPcVr()
+    [MenuItem("WJY/Build Dog1 (VR and Desktop Preview)")]
+    public static void BuildDog1PcVr()
     {
         Dog2XrSetup.Configure();
-        BuildPlayer("Builds/CityDogPCVR", "CityDogPCVR.exe", "Assets/Scenes/Dog2.unity", true);
+        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(Scene, true) };
+        BuildPlayer();
     }
 
-    private static void BuildPlayer(string directory, string executable, string scene, bool xrEnabled)
+    private static void BuildPlayer()
     {
-        string target = Path.Combine(directory, executable);
+        const string directory = "Builds/CityDog1PCVR";
+        string target = Path.Combine(directory, "CityDog1PCVR.exe");
         Directory.CreateDirectory(Path.GetDirectoryName(target));
-        var xr = XRGeneralSettingsPerBuildTarget.XRGeneralSettingsForBuildTarget(BuildTargetGroup.Standalone);
-        var manager = xr != null ? xr.AssignedSettings : null;
-        // Swap the editor's list for this build, preserving the XR manager's registered loaders.
-#pragma warning disable CS0618
-        var loaders = manager != null ? manager.loaders : null;
         var fullscreenMode = PlayerSettings.fullScreenMode;
         int width = PlayerSettings.defaultScreenWidth;
         int height = PlayerSettings.defaultScreenHeight;
@@ -56,12 +51,11 @@ public static class Dog1DemoValidation
         BuildReport report;
         try
         {
-            if (manager != null && !xrEnabled) manager.loaders = new List<XRLoader>();
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
             PlayerSettings.defaultScreenWidth = 1280;
             PlayerSettings.defaultScreenHeight = 800;
             PlayerSettings.resizableWindow = true;
-            report = BuildPipeline.BuildPlayer(new[] { scene }, target, BuildTarget.StandaloneWindows64, BuildOptions.None);
+            report = BuildPipeline.BuildPlayer(new[] { Scene }, target, BuildTarget.StandaloneWindows64, BuildOptions.None);
         }
         finally
         {
@@ -69,8 +63,6 @@ public static class Dog1DemoValidation
             PlayerSettings.defaultScreenWidth = width;
             PlayerSettings.defaultScreenHeight = height;
             PlayerSettings.resizableWindow = resizable;
-            if (manager != null) manager.loaders = loaders;
-#pragma warning restore CS0618
         }
         if (report.summary.result == BuildResult.Succeeded)
         {

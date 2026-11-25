@@ -1,0 +1,74 @@
+[
+  {
+    "case": "0",
+    "expected": "麦粒坐下",
+    "old_base": "賣力 坐下",
+    "new_small": "麦粒，坐下，",
+    "old_seconds": 2.24,
+    "new_seconds": 8.78
+  },
+  {
+    "case": "quiet-sit",
+    "expected": "麦粒坐下",
+    "old_base": "",
+    "new_small": "麦粒，坐下，",
+    "old_seconds": 0.0,
+    "new_seconds": 7.3
+  },
+  {
+    "case": "1",
+    "expected": "过来",
+    "old_base": "過來",
+    "new_small": "过来，",
+    "old_seconds": 2.01,
+    "new_seconds": 6.09
+  },
+  {
+    "case": "2",
+    "expected": "趴下",
+    "old_base": "踏下",
+    "new_small": "趴下，",
+    "old_seconds": 2.82,
+    "new_seconds": 6.27
+  },
+  {
+    "case": "3",
+    "expected": "抬起右爪",
+    "old_base": "抬起右招",
+    "new_small": "抬起右爪，",
+    "old_seconds": 3.94,
+    "new_seconds": 9.75
+  },
+  {
+    "case": "4",
+    "expected": "把玩具拿来",
+    "old_base": "把玩具拿來。",
+    "new_small": "把玩具拿来，",
+    "old_seconds": 2.22,
+    "new_seconds": 8.03
+  },
+  {
+    "case": "5",
+    "expected": "我今天心情不好",
+    "old_base": "我今天心情不好。",
+    "new_small": "我今天心情不好。",
+    "old_seconds": 6.22,
+    "new_seconds": 6.79
+  },
+  {
+    "case": "silence",
+    "expected": "",
+    "old_base": "",
+    "new_small": "",
+    "old_seconds": 0.0,
+    "new_seconds": 0.02
+  },
+  {
+    "case": "noise",
+    "expected": "",
+    "old_base": "",
+    "new_small": "",
+    "old_seconds": 2.73,
+    "new_seconds": 0.27
+  }
+]
