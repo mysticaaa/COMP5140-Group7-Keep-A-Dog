@@ -5,7 +5,8 @@ namespace Wjy.DogTraining
     public sealed partial class DogCompanion
     {
         private Transform presentedToy;
-        private float presentedToyActionAt;
+        private float presentedToyActionAt = float.NegativeInfinity;
+        private Vector2 presentedToyAim;
         private DogToyBody physicalBall;
 
         internal bool CanUsePhysicalBall => ball != null && (physicalBall == null || physicalBall.CanFetch);
@@ -112,10 +113,11 @@ namespace Wjy.DogTraining
 
         internal bool NoticePresentedToy(Transform item)
         {
-            if (item == null || head == null || !TryLookAngles(item, 1.45f, 76f, out _) ||
+            if (item == null || head == null || !TryLookAngles(item, 1.45f, 76f, out Vector2 aim) ||
                 !TryPlayMicroAction("head_turn")) return false;
             presentedToy = item;
             presentedToyActionAt = microActionAt;
+            presentedToyAim = aim;
             PlayTailWag();
             return true;
         }
@@ -123,10 +125,12 @@ namespace Wjy.DogTraining
         private bool ReadPresentedToyAngles(out Vector2 angles)
         {
             angles = default;
-            if (presentedToy == null || microActionAt != presentedToyActionAt) return false;
-            var held = presentedToy.GetComponent<DogToyBody>();
-            return held != null && held.Holder != DogToyHolder.Free &&
-                TryLookAngles(presentedToy, 1.65f, 82f, out angles);
+            if (microActionAt != presentedToyActionAt) return false;
+            var held = presentedToy != null ? presentedToy.GetComponent<DogToyBody>() : null;
+            if (held != null && held.Holder != DogToyHolder.Free && TryLookAngles(presentedToy, 1.65f, 82f, out Vector2 current))
+                presentedToyAim = current;
+            angles = presentedToyAim;
+            return true;
         }
 
         private static void ResetFetchProp(Transform item, Vector3 target)

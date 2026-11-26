@@ -5,7 +5,7 @@ namespace Wjy.DogTraining
     public sealed partial class DogCompanion
     {
         public Transform PerceptionHead => head;
-        public bool CanOfferMicroAction => Ready && CanPlayMicroPose() && !IsPlayingMicroAction;
+        public bool CanOfferMicroAction => Ready && CanPlayMicroPose() && !IsFinishingIdleAction;
 
         public bool CanOfferMicroActionId(string id)
         {

@@ -162,19 +162,20 @@ namespace Wjy.DogTraining
             dog.HasPlayClearance = world.HasDogPlayClearance;
             if (keepPose) dog.ConfigurePracticeArea(world.FetchPosition, world.ToyPosition);
             else dog.SetPracticeArea(world.DogStart, world.FetchPosition, world.ToyPosition);
+            perception.Dog = dog;
+            perception.RefreshTargets();
+            ConfigurePhysicalProps();
             var points = new System.Collections.Generic.List<DogCompanion.ExplorationPoint>
             {
-                new DogCompanion.ExplorationPoint("玩具", world.ToyPosition),
                 new DogCompanion.ExplorationPoint("水碗", world.WaterPosition),
                 new DogCompanion.ExplorationPoint("食盆", world.FoodPosition)
             };
+            foreach (var toy in physicalProps)
+                if (toy != null) points.Add(new DogCompanion.ExplorationPoint(toy.Label, toy.transform.position, toy.transform));
             Transform cushion = HomeRestSpot(false);
             if (cushion != null) points.Add(new DogCompanion.ExplorationPoint("软垫", cushion.position));
             else points.Add(new DogCompanion.ExplorationPoint("散步路标", world.WalkDestination));
             dog.SetExplorationPoints(points.ToArray());
-            perception.Dog = dog;
-            perception.RefreshTargets();
-            ConfigurePhysicalProps();
         }
 
         private bool Ready => started && !pause && !choosingBreed && !busy && !walking &&
@@ -225,7 +226,7 @@ namespace Wjy.DogTraining
             }
             if (view != null && world.IsElevatorMoving) view.InputSuspended = true;
             life.Tick(Time.deltaTime);
-            if (Ready && !VoiceListening && !VoiceFinalizing && Time.time >= nextBowlCheck)
+            if (Ready && !dog.IsFinishingIdleAction && !VoiceListening && !VoiceFinalizing && Time.time >= nextBowlCheck)
             {
                 nextBowlCheck = Time.time + 2f;
                 if (world.HasServing(DogCareAction.Feed) && string.IsNullOrEmpty(life.GetBlockReason(DogCareAction.Feed)))
@@ -245,8 +246,13 @@ namespace Wjy.DogTraining
                     StartCoroutine(FinishWalk());
                 }
             }
-            if (Ready && !dog.IsPlayingMicroAction && !VoiceListening && !VoiceFinalizing &&
-                Time.unscaledTime >= nextAutonomy && !agent.CanGiveFeedback && !CanRewardTrick)
+            if (!Ready || dog.IsFinishingIdleAction || VoiceListening || VoiceFinalizing || CanRewardTrick || HasPlayInvitation) return;
+            if (dog.TryConsumeArrivalInvitation() && CanInviteOwner() && life.Energy >= 36f && life.Hydration >= 34f && life.Satiety >= 30f)
+            {
+                nextAutonomy = Time.unscaledTime + 26f;
+                StartCoroutine(OfferPlay());
+            }
+            else if (!agent.CanGiveFeedback && Time.unscaledTime >= nextAutonomy)
             {
                 nextAutonomy = Time.unscaledTime + 26f;
                 StartCoroutine(Autonomy());
@@ -260,13 +266,19 @@ namespace Wjy.DogTraining
 
         private IEnumerator RestWithFurniture(bool house)
         {
-            Transform spot = HomeRestSpot(house);
-            if (spot == null) yield return dog.PerformAction("rest", .35f);
-            else
+            bool wasBusy = busy;
+            busy = true;
+            try
             {
-                nextRestInHouse = !house;
-                yield return dog.RestAt(spot, house, HomeRestSpot(false));
+                Transform spot = HomeRestSpot(house);
+                if (spot == null) yield return dog.PerformAction("rest", .35f);
+                else
+                {
+                    nextRestInHouse = !house;
+                    yield return dog.RestAt(spot, house, HomeRestSpot(false));
+                }
             }
+            finally { busy = wasBusy; }
         }
 
         private IEnumerator Autonomy()
@@ -299,13 +311,7 @@ namespace Wjy.DogTraining
             }
             else if (CanInviteOwner() && (life.Mood < 55f || UnityEngine.Random.value < 0.44f))
             {
-                yield return dog.PerformAction("invite", 0.25f);
-                if (dog.LastPlaySucceeded)
-                {
-                    OpenTrickReward();
-                    pendingInvitation = true;
-                    reply = "麦粒前身伏低，望着你等回应。可以陪它玩，也可以表扬这个动作。";
-                }
+                yield return OfferPlay();
             }
             else if (IsFacingNearbyToy() && life.Mood >= 50f && UnityEngine.Random.value < 0.4f)
             {
@@ -320,6 +326,23 @@ namespace Wjy.DogTraining
                     yield return dog.PerformAction("sniff", 0.25f);
                     if (dog.LastPlaySucceeded) reply = "麦粒低头闻了闻附近的气味。";
                 }
+            }
+        }
+
+        private IEnumerator OfferPlay()
+        {
+            yield return dog.PerformAction("invite", .25f);
+            if (!dog.LastPlaySucceeded) yield break;
+            pendingInvitation = true;
+            if (agent.CanGiveFeedback)
+            {
+                invitationResponseUntil = Time.unscaledTime + 26f;
+                reply = "麦粒伏低身子，等你选陪玩还是歇一会儿。";
+            }
+            else
+            {
+                OpenTrickReward();
+                reply = "麦粒前身伏低，望着你等回应。可以陪它玩，也可以表扬这个动作。";
             }
         }
 
@@ -618,7 +641,7 @@ namespace Wjy.DogTraining
             dog.SetWanderingEnabled(false);
             try
             {
-                float until = Time.time + 4.4f;
+                float until = Time.time + 5.1f;
                 var observation = CapturePerception();
                 while (!DogPerceptionSelection.CanOffer(observation) && Time.time < until)
                 {
@@ -696,6 +719,7 @@ namespace Wjy.DogTraining
         {
             pendingTrick = false;
             pendingInvitation = false;
+            invitationResponseUntil = 0f;
             pendingName = null;
             pendingRoutine = null;
         }

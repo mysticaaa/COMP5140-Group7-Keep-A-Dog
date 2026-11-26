@@ -142,8 +142,8 @@ public static class DogMotionRecoveryValidation
         var chest = Bone(dog, "DEF-chest");
         var leftEar = Bone(dog, "DEF-ear.01.L");
         var rightEar = Bone(dog, "DEF-ear.01.R");
-        string[] poseRoles = { "DEF-head", "DEF-chest", "DEF-ear.01.L", "DEF-ear.01.R" };
-        var poseJoints = new[] { head, chest, leftEar, rightEar };
+        var pelvis = Bone(dog, "DEF-pelvis");
+        var poseJoints = new[] { head, chest, leftEar, rightEar, pelvis };
         Require(!dog.TryPlayMicroAction("unknown_micro_action"), "unknown tagged action rejected");
         foreach (var action in DogCompanion.MicroActions)
         {
@@ -155,13 +155,14 @@ public static class DogMotionRecoveryValidation
             var plantedAt = Array.ConvertAll(paws, paw => paw.position);
             Vector3 root = dog.transform.position;
             Quaternion facing = dog.transform.rotation;
-            var peak = new float[poseRoles.Length];
+            var peak = new float[poseJoints.Length];
             float peakYaw = 0f, peakRoll = 0f;
+            float firstHeadMove = float.PositiveInfinity, firstHipMove = float.PositiveInfinity;
             Require(dog.TryPlayMicroAction(action.Id), "play " + action.Id);
             Require(!dog.TryPlayMicroAction(action.Id), "concurrent micro-action rejected", false);
             float started = Time.time;
             bool grooming = action.Id == "groom_paw";
-            float captureTime = grooming ? 1.65f :
+            float captureTime = grooming ? 1.65f : action.Id == "body_shake" ? .47f :
                 action.Id == "ear_flick" || action.Id == "ear_perk" ? .38f : .95f;
             bool captured = false;
             while (dog.IsPlayingMicroAction && Time.time - started < action.Duration + .08f)
@@ -169,6 +170,9 @@ public static class DogMotionRecoveryValidation
                 yield return null;
                 for (int i = 0; i < peak.Length; i++)
                     peak[i] = Mathf.Max(peak[i], Quaternion.Angle(prior[i], poseJoints[i].rotation));
+                float phase = Time.time - started;
+                if (peak[0] > 2.5f) firstHeadMove = Mathf.Min(firstHeadMove, phase);
+                if (peak[4] > 1.8f) firstHipMove = Mathf.Min(firstHipMove, phase);
                 Quaternion delta = head.rotation * Quaternion.Inverse(prior[0]);
                 peakYaw = Mathf.Max(peakYaw, Mathf.Abs(Vector3.SignedAngle(dog.transform.forward,
                     Vector3.ProjectOnPlane(delta * dog.transform.forward, Vector3.up), Vector3.up)));
@@ -197,6 +201,11 @@ public static class DogMotionRecoveryValidation
                 case "ear_perk":
                 case "ear_flick": Require(Mathf.Max(peak[2], peak[3]) > 4f, "ear bones move: " + action.Id); break;
                 case "chest_lean": Require(peak[1] > 2.5f, "chest follows head and neck"); break;
+                case "soft_shake": Require(peak[0] > 2f && peak[0] < 10f, "ear adjustment stays compact"); break;
+                case "body_shake":
+                    Require(peak[0] > 7f && peak[1] > 4f && peak[4] > 2f && firstHipMove - firstHeadMove > .10f,
+                        "coat shake travels from head to chest and pelvis while paws stay planted");
+                    break;
                 default: Require(peak[0] > 3f, "head bones move: " + action.Id); break;
             }
         }

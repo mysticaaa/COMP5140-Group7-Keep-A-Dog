@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using UnityEditor;
@@ -43,13 +44,20 @@ public static class DogDefaultBreedValidation
 
     private static IEnumerator Guard(IEnumerator test)
     {
-        while (true)
+        var steps = new Stack<IEnumerator>();
+        steps.Push(test);
+        while (steps.Count > 0)
         {
             object current;
             try
             {
-                if (!test.MoveNext()) break;
-                current = test.Current;
+                IEnumerator step = steps.Peek();
+                if (!step.MoveNext())
+                {
+                    steps.Pop();
+                    continue;
+                }
+                current = step.Current;
             }
             catch (Exception error)
             {
@@ -57,9 +65,10 @@ public static class DogDefaultBreedValidation
                 Finish(1);
                 yield break;
             }
-            yield return current;
+            if (current is IEnumerator nested) steps.Push(nested);
+            else yield return current;
         }
-        Debug.Log("DOG_DEFAULT_BREED_OK: original Border Collie mesh, curved walking, head tilt, fetch and pet");
+        Debug.Log("DOG_DEFAULT_BREED_OK: original Border Collie, grounded invitation, unbroken target attention, curved walking and fetch");
         Finish(0);
     }
 
@@ -108,20 +117,127 @@ public static class DogDefaultBreedValidation
         Capture(camera, dog, "border-collie-head-tilt.png");
         yield return new WaitForSeconds(1.65f);
 
-        var routines = new[] { "pet", "paw", "bow", "fetch_toy", "fetch_lollipop" };
+        var routines = new[] { "pet", "paw", "bow", "invite", "fetch_toy", "fetch_lollipop" };
         foreach (string action in routines)
         {
             dog.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
             dog.ResetCompanion();
             yield return new WaitForSeconds(.3f);
-            dog.StartCoroutine(dog.PerformAction(action, .15f));
-            float deadline = Time.time + 25f;
-            while (dog.IsPerforming && Time.time < deadline) yield return null;
+            if (action == "invite")
+            {
+                Vector3 oldOwner = owner.position;
+                owner.position = new Vector3(.08f, 1.43f, 1.82f);
+                Transform chest = Joint(dog, "DEF-chest"), hips = Joint(dog, "DEF-pelvis");
+                Transform muzzle = head.Find("Muzzle landmark");
+                Vector3 hipStart = hips.position;
+                Vector3 plantedLeft = default, plantedRight = default;
+                float phaseStart = Time.time, steadySeconds = 0f, peakCrest = 0f, peakSlide = 0f;
+                float rootSlip = 0f, lowestGap = float.PositiveInfinity, minimumLook = float.PositiveInfinity;
+                bool captured = false;
+                dog.StartCoroutine(dog.PerformAction(action, .15f));
+                while (dog.IsPerforming && Time.time - phaseStart < 5f)
+                {
+                    yield return null;
+                    float age = Time.time - phaseStart;
+                    rootSlip = Mathf.Max(rootSlip, dog.transform.position.magnitude);
+                    if (age < .64f) peakCrest = Mathf.Max(peakCrest, Mathf.Max(fl.position.y, fr.position.y));
+                    if (age < .92f || age > 1.47f) continue;
+                    steadySeconds += Time.deltaTime;
+                    lowestGap = Mathf.Min(lowestGap, hips.position.y - chest.position.y);
+                    if (muzzle != null)
+                    {
+                        Vector3 nose = (muzzle.position - head.position).normalized;
+                        minimumLook = Mathf.Min(minimumLook, Vector3.Dot(nose, (owner.position - head.position).normalized));
+                    }
+                    if (!captured)
+                    {
+                        plantedLeft = fl.position;
+                        plantedRight = fr.position;
+                        Capture(camera, dog, "border-collie-invite.png");
+                        captured = true;
+                    }
+                    else peakSlide = Mathf.Max(peakSlide, Mathf.Max(FlatMotion(plantedLeft, fl.position), FlatMotion(plantedRight, fr.position)));
+                }
+                Debug.Log($"DEFAULT_BOW hold={steadySeconds:F2}s torso gap={lowestGap:F3}m paw crest={peakCrest:F3}m hold drift={peakSlide:F3}m look={minimumLook:F2}");
+                Require(captured && steadySeconds > .43f && lowestGap > .035f,
+                    "play invitation holds with forequarters below the hips");
+                Require(peakCrest > .032f && peakSlide < .036f && rootSlip < .003f,
+                    "play invitation lifts the front paws then keeps the stance");
+                Require(muzzle != null && minimumLook > .65f && hips.position.y > hipStart.y - .06f,
+                    "play invitation looks at the owner and returns to standing");
+                owner.position = oldOwner;
+            }
+            else
+            {
+                dog.StartCoroutine(dog.PerformAction(action, .15f));
+                float deadline = Time.time + 25f;
+                while (dog.IsPerforming && Time.time < deadline) yield return null;
+            }
             Require(!dog.IsPerforming, "action finishes: " + action);
             if (action.StartsWith("fetch", StringComparison.Ordinal))
                 Require(dog.LastFetchSucceeded, "short muzzle reaches and returns " + action);
         }
+        yield return CheckArrival(dog, owner, camera);
     }
+
+    private static IEnumerator CheckArrival(DogCompanion dog, Transform owner, Camera camera)
+    {
+        dog.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        dog.ResetCompanion();
+        owner.position = new Vector3(.24f, 1.45f, 3.3f);
+        yield return dog.PerformAction("come", .1f);
+        Require(dog.LastComeSucceeded, "arrival fixture reaches the player");
+        var startedAt = typeof(DogCompanion).GetField("arrivalStartedAt", Instance);
+        var focus = typeof(DogCompanion).GetProperty("HasCommittedArrivalFocus", Instance);
+        var tilt = typeof(DogCompanion).GetField("socialTilt", Instance);
+        var pitch = typeof(DogCompanion).GetField("socialPitch", Instance);
+        var yaw = typeof(DogCompanion).GetField("socialYaw", Instance);
+        var consumeInvite = typeof(DogCompanion).GetMethod("TryConsumeArrivalInvitation", Instance);
+        typeof(DogCompanion).GetField("arrivalMayInvite", Instance).SetValue(dog, true);
+        float wait = Time.time + 2f;
+        while ((float)startedAt.GetValue(dog) < 0f && Time.time < wait) yield return null;
+        float ageOrigin = (float)startedAt.GetValue(dog);
+        Require(ageOrigin >= 0f, "arrival settles into a timed look");
+
+        Vector3 planted = dog.transform.position;
+        yield return new WaitForSeconds(1.1f);
+        float firstTilt = (float)tilt.GetValue(dog);
+        Require(firstTilt < -7f && (float)pitch.GetValue(dog) < -8f, "arrival lifts its muzzle and tilts its head");
+        Require(!dog.TryPlayMicroAction("soft_shake") && !(bool)consumeInvite.Invoke(dog, null), "arrival pose owns the attention until it finishes");
+        dog.AttendToUser(3f);
+        yield return new WaitForSeconds(.38f);
+        Require((float)startedAt.GetValue(dog) == ageOrigin && (float)tilt.GetValue(dog) < -7f &&
+            Vector3.Distance(planted, dog.transform.position) < .002f, "repeated attention keeps the same look and planted stance");
+        Require(dog.transform.Find("Puzzled question mark")?.gameObject.activeSelf != true, "friendly anticipation has no question mark");
+        Capture(camera, dog, "border-collie-owner-arrival.png");
+        while ((bool)focus.GetValue(dog) && Time.time < ageOrigin + 3.3f) yield return null;
+        Require(!(bool)focus.GetValue(dog) && (bool)consumeInvite.Invoke(dog, null) && !(bool)consumeInvite.Invoke(dog, null),
+            "owner look completes before offering play once");
+
+        var prop = new GameObject("Moved toy target").transform;
+        prop.position = dog.transform.TransformPoint(.41f, .03f, .68f);
+        var pointType = typeof(DogCompanion).GetNestedType("ExplorationPoint", BindingFlags.NonPublic);
+        var points = Array.CreateInstance(pointType, 1);
+        points.SetValue(Activator.CreateInstance(pointType, new object[] { "玩具", Vector3.zero, prop }), 0);
+        typeof(DogCompanion).GetMethod("SetExplorationPoints", Instance).Invoke(dog, new object[] { points });
+        var focusType = typeof(DogCompanion).GetNestedType("ArrivalFocus", BindingFlags.NonPublic);
+        typeof(DogCompanion).GetMethod("ScheduleArrivalFocus", Instance).Invoke(dog, new[] { Enum.Parse(focusType, "Object"), (object)0, false });
+        yield return new WaitForSeconds(.95f);
+        Require((float)yaw.GetValue(dog) > 10f && (float)pitch.GetValue(dog) > 13f,
+            "inspection looks down and toward the toy's actual moved position");
+        prop.position = dog.transform.TransformPoint(0f, 0f, -2f);
+        dog.StartCoroutine(dog.PerformAction("paw", .1f));
+        yield return new WaitForSeconds(.32f);
+        Require((bool)focus.GetValue(dog) && !dog.IsPerforming && (float)yaw.GetValue(dog) > 8f,
+            "a moved toy and a queued action do not cut an inspection short");
+        wait = Time.time + 3f;
+        while (!dog.IsPerforming && Time.time < wait) yield return null;
+        Require(dog.CurrentAction == "paw" && !(bool)focus.GetValue(dog), "queued action starts after the inspection releases");
+        while (dog.IsPerforming && Time.time < wait) yield return null;
+    }
+
+    private static float FlatMotion(Vector3 from, Vector3 to) =>
+        Vector3.ProjectOnPlane(to - from, Vector3.up).magnitude;
 
     private static Transform Joint(DogCompanion dog, string name)
     {

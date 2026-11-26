@@ -20,9 +20,9 @@ namespace Wjy.DogTraining
             "Return only JSON {\"activity\":\"candidate_id\",\"reply\":\"brief Chinese line as the dog\"}. " +
             "Keep the reply under 36 characters. Do not claim an activity has already finished or add items or people.";
 
-        private float quietStoryUntil;
+        private float quietStoryUntil, invitationResponseUntil;
         private float storyResponseUntil;
-        private bool HasPlayInvitation => pendingInvitation && CanRewardTrick;
+        private bool HasPlayInvitation => pendingInvitation && (CanRewardTrick || Time.unscaledTime < invitationResponseUntil);
         private bool HasQuietStory => Time.unscaledTime < quietStoryUntil;
 
         private string StoryTitle => !started ? "接麦粒回家" :

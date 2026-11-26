@@ -13,6 +13,95 @@ namespace Wjy.DogTraining
         private Quaternion burstHeading;
         private int burstDirection;
         private bool burstStopped;
+        private float playBowTurnEnd;
+        private bool playBowContactsCaptured;
+
+        private const float PlayBowBrace = .17f;
+        private const float PlayBowDropEnd = .60f;
+        private float PlayBowAge => actionAge - playBowTurnEnd - PlayBowBrace;
+        private float PlayBowHoldEnd => CurrentAction == "invite" ? 1.37f : .99f;
+        private float PlayBowDuration => playBowTurnEnd + PlayBowBrace + PlayBowHoldEnd + .68f;
+
+        private static bool IsPlayBow(string action) => action == "bow" || action == "invite";
+
+        private void BeginPlayBow()
+        {
+            float bearing = user == null ? 0f : Mathf.Abs(HeadingChange(transform.forward, user.position - transform.position));
+            playBowTurnEnd = bearing > 24f ? (bearing - 24f) / 88f + .19f : 0f;
+            playBowContactsCaptured = false;
+        }
+
+        private float PlayBowWeight()
+        {
+            float age = PlayBowAge;
+            return EaseBetween(.04f, PlayBowDropEnd, age) * (1f - EaseBetween(PlayBowHoldEnd, PlayBowHoldEnd + .51f, age));
+        }
+
+        private void CapturePlayBowContacts()
+        {
+            if (playBowContactsCaptured) return;
+            playBowContactsCaptured = true;
+            foreach (Foot foot in feet) foot.PlayStart = foot.Contact;
+        }
+
+        private Vector3 PlayBowFootGoal(Foot foot)
+        {
+            // A play bow first reaches and plants each forepaw; the planted targets stay put during the hold.
+            // Rear paws keep their existing ground sites, including the placement left by the preparatory turn.
+            float age = PlayBowAge;
+            float floor = transform.position.y + PawGroundClearance;
+            Vector3 contact = foot.PlayStart;
+            contact.y = Mathf.Lerp(foot.PlayStart.y, floor, EaseBetween(0f, .15f, age));
+            float lift = 0f;
+            if (foot.Front)
+            {
+                float reachStart = foot.Right ? .21f : .02f;
+                float recoverStart = PlayBowHoldEnd + (foot.Right ? .43f : .23f);
+                float reach = Mathf.InverseLerp(reachStart, reachStart + .19f, age);
+                float recover = Mathf.InverseLerp(recoverStart, recoverStart + .19f, age);
+                float extended = Mathf.SmoothStep(0f, 1f, reach) * (1f - Mathf.SmoothStep(0f, 1f, recover));
+                Vector3 forward = KeepFootOnOwnSide(foot, foot.PlayStart + transform.forward * (.17f * bodyScale));
+                contact.x = Mathf.Lerp(contact.x, forward.x, extended);
+                contact.z = Mathf.Lerp(contact.z, forward.z, extended);
+                float swing = Mathf.Sin(Mathf.PI * reach) + Mathf.Sin(Mathf.PI * recover);
+                lift = .048f * bodyScale * swing * swing;
+            }
+            contact.y += lift;
+            foot.Contact = contact;
+            foot.Landing = contact;
+            foot.SwingStart = contact;
+            foot.SwingProgress = 1f;
+            foot.Planted = contact.y <= floor + .002f;
+            return contact;
+        }
+
+        private void ApplyPlayBowUpperBody()
+        {
+            visual.position += transform.forward * (.035f * bodyScale * bowBlend);
+            if (head == null || MuzzleAnchor == null) return;
+
+            // The low shoulders and chest are the signal. Counter their downward pitch in the neck so
+            // the dog keeps its eyes on the play partner instead of appearing to sniff the floor.
+            Vector3 muzzle = MuzzleAnchor.position - head.position;
+            Vector3 toUser = user == null ? transform.forward : user.position - head.position;
+            float bearing = HeadingChange(transform.forward, toUser);
+            float length = new Vector2(toUser.x, toUser.z).magnitude;
+            bool facingPlayer = length >= .28f && length <= 5f && Mathf.Abs(bearing) <= 80f;
+            float desiredElevation = facingPlayer ? Mathf.Clamp(PitchOf(toUser), -13f, 28f) : -4f;
+            float pitch = Mathf.Clamp(PitchOf(muzzle) - desiredElevation, -61f, 14f) * bowBlend;
+            AddPlayPitch("DEF-neck.01", pitch * .36f);
+            AddPlayPitch("DEF-neck.02", pitch * .35f);
+            AddPlayPitch("DEF-head", pitch * .29f);
+            if (facingPlayer)
+            {
+                float yaw = Mathf.Clamp(HeadingChange(muzzle, toUser), -26f, 26f) * bowBlend;
+                Yaw("DEF-neck.02", yaw * .42f);
+                Yaw("DEF-head", yaw * .58f);
+            }
+        }
+
+        private static float PitchOf(Vector3 direction) =>
+            Mathf.Atan2(direction.y, new Vector2(direction.x, direction.z).magnitude) * Mathf.Rad2Deg;
 
         public System.Func<Vector3, float, bool> HasPlayClearance { private get; set; }
         public bool LastPlaySucceeded { get; private set; }
@@ -36,7 +125,7 @@ namespace Wjy.DogTraining
             if (!IsPlaySpaceClear(transform.position - ahead * .27f, .26f) ||
                 !IsPlaySpaceClear(transform.position + ahead * .47f, .31f))
                 return false;
-            foreach (Foot foot in feet) foot.PounceStart = foot.Contact;
+            foreach (Foot foot in feet) foot.PlayStart = foot.Contact;
             return true;
         }
 
@@ -93,6 +182,11 @@ namespace Wjy.DogTraining
         private void ApplyPlayPose()
         {
             if (!IsPerforming) return;
+            if (IsPlayBow(CurrentAction))
+            {
+                ApplyPlayBowUpperBody();
+                return;
+            }
             if (CurrentAction == "sniff")
             {
                 float sniff = EaseBetween(0f, .43f, actionAge) * (1f - EaseBetween(.97f, SniffDuration, actionAge));
@@ -171,12 +265,12 @@ namespace Wjy.DogTraining
             {
                 float recoveryAt = foot.Right ? .88f : .74f;
                 float recover = Mathf.InverseLerp(recoveryAt, recoveryAt + .21f, actionAge);
-                Vector3 seed = foot.PounceStart;
+                Vector3 seed = foot.PlayStart;
                 seed.y = transform.position.y + PawGroundClearance;
                 Vector3 landed = Vector3.Lerp(seed, FootGoal(foot, .13f), EaseBetween(.2f, .50f, actionAge));
                 landed = Vector3.Lerp(landed, FootGoal(foot), EaseBetween(0f, 1f, recover));
                 float lift = .105f * PounceAir(actionAge) + .036f * Mathf.Sin(Mathf.PI * recover);
-                lift += (foot.PounceStart.y - seed.y) * (1f - EaseBetween(0f, .18f, actionAge));
+                lift += (foot.PlayStart.y - seed.y) * (1f - EaseBetween(0f, .18f, actionAge));
                 foot.Contact = landed + Vector3.up * lift;
                 foot.Landing = FootGoal(foot);
                 foot.SwingStart = foot.Contact;

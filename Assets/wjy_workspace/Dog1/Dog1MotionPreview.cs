@@ -77,8 +77,10 @@ namespace Wjy.DogTraining
         {
             DogCompanion companion = dog;
             bool wander = companion.WanderingEnabled;
+            bool heldIdleGestures = companion.HoldIdleGestures;
             busy = true;
             DeveloperSequencePlaying = sequence;
+            companion.HoldIdleGestures = true;
             companion.SetWanderingEnabled(false);
             try
             {
@@ -92,7 +94,11 @@ namespace Wjy.DogTraining
             }
             finally
             {
-                if (companion != null) companion.SetWanderingEnabled(wander);
+                if (companion != null)
+                {
+                    companion.HoldIdleGestures = heldIdleGestures;
+                    companion.SetWanderingEnabled(wander);
+                }
                 DeveloperSequencePlaying = false;
                 busy = false;
                 nextAutonomy = Time.unscaledTime + 18f;
@@ -104,7 +110,7 @@ namespace Wjy.DogTraining
             reply = "动作预览 · " + action.Label;
             if (action.IsMicro)
             {
-                float deadline = Time.time + 1.5f;
+                float deadline = Time.time + 5.25f;
                 while (!companion.TryPlayPreviewMicroAction(action.Id))
                 {
                     if (Time.time >= deadline)

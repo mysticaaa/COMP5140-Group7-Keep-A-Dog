@@ -37,7 +37,9 @@ namespace Wjy.DogTraining
         private static readonly DogMicroAction GazeExchange =
             new DogMicroAction("gaze_exchange", "看你再看玩具", 2.8f, "attention", "toy", "gaze", "stationary");
         private static readonly DogMicroAction SoftShake =
-            new DogMicroAction("soft_shake", "轻摇头整理耳朵", 1.5f, "ear", "shake", "self_care", "stationary");
+            new DogMicroAction("soft_shake", "轻轻整理耳朵", 1.3f, "ear", "shake", "self_care", "stationary");
+        private static readonly DogMicroAction CoatShake =
+            new DogMicroAction("body_shake", "抖一抖身上的毛", 1.5f, "body", "shake", "self_care", "stationary");
         private static readonly DogMicroAction GroomPaw =
             new DogMicroAction("groom_paw", "伏身舔前爪", 4.0f, "self_care", "groom", "paw", "stationary");
         private static readonly DogMicroAction CheckBehind =
@@ -47,7 +49,7 @@ namespace Wjy.DogTraining
 
         public static IReadOnlyList<DogMicroAction> MicroActions { get; } =
             Array.AsReadOnly(new[] { HeadTurn, HeadTilt, EarPerk, EarFlick, ChestLean, AirSniff, GazeExchange,
-                SoftShake, GroomPaw, CheckBehind, NoseToFloor });
+                SoftShake, CoatShake, GroomPaw, CheckBehind, NoseToFloor });
 
         private const float AttentionTiltDuration = 2.5f;
         private float attentionUntil, attentionAt = -100f, tiltAt = -100f, nextAttentionTilt;
@@ -55,10 +57,10 @@ namespace Wjy.DogTraining
         private float socialYaw, socialPitch, socialTilt, socialLean, socialChestYaw;
         private float leftEarYaw, rightEarYaw, leftEarPitch, rightEarPitch;
         private DogMicroAction microAction;
-        private bool automaticMicroAction, previewMicroAction;
         private float microActionAt, nextQuietLook = -1f, microActionSide = 1f, microActionYaw;
+        private Vector2 microOwnerAim, microToyAim;
         private int quietLookIndex;
-        private float nextGroom;
+        private float nextGroom, nextCoatShake;
         internal bool HoldIdleGestures { get; set; }
         internal string CurrentMicroActionLabel => IsPlayingMicroAction ? microAction.Label : "";
 
@@ -68,12 +70,11 @@ namespace Wjy.DogTraining
         // Observational cues use the same head, neck and ear channels as the tagged micro-actions.
         public void AttendToUser(float seconds = 3f, bool allowTilt = true)
         {
-            if (!Ready || user == null) return;
+            if (!Ready || user == null || arrivalFocus == ArrivalFocus.Owner) return;
             if (Time.time >= attentionUntil)
             {
                 cueHasStarted = false;
                 tiltRequested = false;
-                if (automaticMicroAction) microAction = null;
             }
             attentionUntil = Mathf.Max(attentionUntil, Time.time + Mathf.Clamp(seconds, 0f, 12f));
             tiltRequested |= allowTilt && Time.time >= nextAttentionTilt;
@@ -95,21 +96,21 @@ namespace Wjy.DogTraining
 
         private bool TryPlayMicroAction(DogMicroAction action, bool automatic, bool preview = false)
         {
-            if (!Ready || !CanPlayMicroPose() ||
-                (IsPlayingMicroAction && (automatic || !automaticMicroAction))) return false;
+            if (!Ready || !CanPlayMicroPose() || IsFinishingIdleAction) return false;
             if ((action == EarPerk || action == EarFlick) &&
                 (Bone("DEF-ear.01.L") == null || Bone("DEF-ear.01.R") == null)) return false;
             bool ownerInView = TryLookAngles(user, 6f, 88f, out Vector2 ownerAngles);
-            if (!preview && action == GazeExchange && (!ownerInView || !TryLookAngles(ball, 4f, 72f, out _))) return false;
+            bool toyInView = TryLookAngles(ball, 4f, 72f, out Vector2 toyAngles);
+            if (!preview && action == GazeExchange && (!ownerInView || !toyInView)) return false;
 
             microAction = action;
-            automaticMicroAction = automatic;
-            previewMicroAction = preview;
             microActionAt = Time.time;
             // Leave a pause after an explicit gesture before resuming the idle repertoire.
             if (!automatic) nextQuietLook = Mathf.Max(nextQuietLook, Time.time + action.Duration + 1f);
             microActionSide = ownerInView && Mathf.Abs(ownerAngles.x) > 8f
                 ? Mathf.Sign(ownerAngles.x) : (quietLookIndex % 2 == 0 ? 1f : -1f);
+            microOwnerAim = ownerAngles;
+            microToyAim = toyInView ? toyAngles : new Vector2(-microActionSide * 28f, 11f);
             bool aimAtOwner = ownerInView && (automatic || Mathf.Abs(ownerAngles.x) > 10f);
             microActionYaw = aimAtOwner ? Mathf.Clamp(ownerAngles.x, -44f, 44f) : microActionSide * 27f;
             return true;
@@ -120,7 +121,7 @@ namespace Wjy.DogTraining
             Mathf.Max(Mathf.Max(crouchBlend, bowBlend), Mathf.Max(pawBlend, pickupBlend)) < .1f;
 
         private static readonly DogMicroAction[] QuietActions = { HeadTurn, EarPerk, HeadTilt,
-            GazeExchange, SoftShake, CheckBehind, GroomPaw, AirSniff, NoseToFloor, EarFlick };
+            GazeExchange, CoatShake, CheckBehind, GroomPaw, AirSniff, NoseToFloor, EarFlick };
 
         private float GroomLowering => microAction == GroomPaw && IsPlayingMicroAction
             ? Pulse(Time.time - microActionAt, .06f, 1f, 2.9f, 3.9f) : 0f;
@@ -135,11 +136,11 @@ namespace Wjy.DogTraining
             socialYaw = socialPitch = socialTilt = socialLean = socialChestYaw = 0f;
             leftEarYaw = rightEarYaw = leftEarPitch = rightEarPitch = 0f;
             microAction = null;
-            automaticMicroAction = false;
-            previewMicroAction = false;
+            microOwnerAim = microToyAim = Vector2.zero;
             nextQuietLook = -1f;
             quietLookIndex = 0;
             nextGroom = 0f;
+            nextCoatShake = Time.time + 12f;
         }
 
         private void ApplySocialAttention(float dt, bool walking)
@@ -149,9 +150,10 @@ namespace Wjy.DogTraining
                 CurrentAction == "sit" || CurrentAction == "pet" || CurrentAction == "refuse");
             Vector2 ownerAngles = default;
             bool ownerInView = compatible && TryLookAngles(user, 6f, 88f, out ownerAngles);
-            bool liveCue = compatible && ownerInView && Time.time < attentionUntil;
+            bool liveCue = compatible && ownerInView && Time.time < attentionUntil && (cueHasStarted || !HoldIdleGestures);
             if (!IsPlayingMicroAction || !compatible || IsPerforming) microAction = null;
-            if (microAction == null && compatible && CanPlayMicroPose() && !liveCue && !HoldIdleGestures)
+            bool arriving = TrySampleArrivalAttention(walking, out UpperBodyPose arrivalPose);
+            if (microAction == null && compatible && CanPlayMicroPose() && !liveCue && !HoldIdleGestures && !HasCommittedArrivalFocus)
                 UpdateQuietGesture();
 
             UpperBodyPose pose = default;
@@ -162,6 +164,10 @@ namespace Wjy.DogTraining
                 pose.Tilt = -21f * puzzled;
                 pose.LeftEar.y = 4f * puzzled;
                 pose.RightEar.y = -3f * puzzled;
+            }
+            else if (arriving)
+            {
+                pose = arrivalPose;
             }
             else if (microAction != null)
             {
@@ -215,7 +221,12 @@ namespace Wjy.DogTraining
                 if (Time.time < nextGroom) gesture = AirSniff;
                 else nextGroom = Time.time + 36f;
             }
-            if (!TryPlayMicroAction(gesture, true) && gesture != AirSniff) TryPlayMicroAction(AirSniff, true);
+            if (gesture == CoatShake && Time.time < nextCoatShake) gesture = AirSniff;
+            if (TryPlayMicroAction(gesture, true))
+            {
+                if (gesture == CoatShake) nextCoatShake = Time.time + 46f;
+            }
+            else if (gesture != AirSniff) TryPlayMicroAction(AirSniff, true);
             nextQuietLook = Time.time + gesture.Duration + 1.6f;
         }
 
@@ -225,18 +236,19 @@ namespace Wjy.DogTraining
             float side = microActionSide;
             float settle = Pulse(age, .06f, .48f, microAction.Duration - .7f, microAction.Duration);
             var pose = new UpperBodyPose();
+            if (ownerInView) microOwnerAim = ownerAngles;
 
             if (microAction == HeadTurn)
             {
                 bool lookingAtToy = ReadPresentedToyAngles(out Vector2 toyAngles);
                 float turn = lookingAtToy ? Mathf.Clamp(toyAngles.x, -48f, 48f) : microActionYaw;
-                float tilt = lookingAtToy ? toyAngles.y : ownerInView ? ownerAngles.y * .65f : 0f;
+                float tilt = lookingAtToy ? toyAngles.y : microOwnerAim.y * .65f;
                 pose.Aim = new Vector2(turn, tilt) * settle;
                 pose.LeftEar.x = pose.RightEar.x = turn * .17f * Pulse(age, 0f, .18f, 1.15f, 1.9f);
             }
             else if (microAction == HeadTilt)
             {
-                pose.Aim = new Vector2(Mathf.Clamp(ownerAngles.x, -28f, 28f), ownerAngles.y * .65f) * settle;
+                pose.Aim = new Vector2(Mathf.Clamp(microOwnerAim.x, -28f, 28f), microOwnerAim.y * .65f) * settle;
                 pose.Tilt = -17f * Pulse(age, .22f, .64f, 1.64f, microAction.Duration);
                 pose.LeftEar.y = 5f * Pulse(age, 0f, .2f, .58f, 1.35f);
                 pose.RightEar.y = pose.LeftEar.y * .66f;
@@ -257,7 +269,7 @@ namespace Wjy.DogTraining
             {
                 float turn = Mathf.Clamp(microActionYaw, -38f, 38f);
                 float chest = Pulse(age, .29f, .82f, 1.47f, microAction.Duration);
-                pose.Aim = new Vector2(turn, ownerInView ? ownerAngles.y * .65f : -5f) * settle;
+                pose.Aim = new Vector2(turn, microOwnerAim.y * .65f) * settle;
                 pose.ChestYaw = side * 3f * chest;
                 pose.Lean = side * 3.2f * chest;
             }
@@ -270,23 +282,19 @@ namespace Wjy.DogTraining
             }
             else if (microAction == GazeExchange)
             {
-                if (!ownerInView && !previewMicroAction) return pose;
-                if (!TryLookAngles(ball, 4f, 72f, out Vector2 toyAngles))
-                {
-                    if (!previewMicroAction) return pose;
-                    toyAngles = new Vector2(-side * 28f, 11f);
-                }
+                if (TryLookAngles(ball, 4f, 72f, out Vector2 toyAngles)) microToyAim = toyAngles;
                 float toyWeight = Pulse(age, .72f, 1.18f, 1.52f, 2.05f);
-                pose.Aim = Vector2.Lerp(ownerAngles, toyAngles, toyWeight) * settle;
+                pose.Aim = Vector2.Lerp(microOwnerAim, microToyAim, toyWeight) * settle;
                 pose.Aim.x = Mathf.Clamp(pose.Aim.x, -44f, 44f);
             }
             else if (microAction == SoftShake)
             {
-                float shake = Mathf.Sin(age * 14f) * Pulse(age, .10f, .28f, .78f, 1.25f);
-                pose.Aim.x = 13f * shake;
-                pose.Tilt = 7f * shake;
-                pose.LeftEar.x = -8f * shake;
-                pose.RightEar.x = -8f * shake;
+                float headFlick = Pulse(age, .08f, .24f, .29f, .53f) - .58f * Pulse(age, .34f, .51f, .54f, .81f);
+                float earFlick = Pulse(age, .15f, .28f, .37f, .64f) - .42f * Pulse(age, .47f, .62f, .68f, .88f);
+                pose.Aim.x = side * 5f * headFlick;
+                pose.Tilt = side * 5.5f * headFlick;
+                pose.LeftEar.x = -side * 9f * earFlick;
+                pose.RightEar.x = -side * 7f * earFlick;
             }
             else if (microAction == GroomPaw)
             {
@@ -298,7 +306,7 @@ namespace Wjy.DogTraining
             }
             else if (microAction == CheckBehind)
             {
-                pose.Aim = new Vector2(side * 51f, ownerInView ? ownerAngles.y * .65f : -3f) * settle;
+                pose.Aim = new Vector2(side * 51f, microOwnerAim.y * .65f) * settle;
                 pose.ChestYaw = side * 5f * settle;
                 pose.Lean = side * 2f * settle;
                 pose.LeftEar.x = pose.RightEar.x = side * 9f * settle;
@@ -310,6 +318,32 @@ namespace Wjy.DogTraining
                 pose.ChestYaw = side * 1.2f * low;
             }
             return pose;
+        }
+
+        private void ApplyCoatShake()
+        {
+            if (microAction != CoatShake || !IsPlayingMicroAction) return;
+            float age = Time.time - microActionAt;
+            // Local rolls start at the head and travel down the spine. IK maintains paw contact.
+            float headWave = ShakePhase(age, 0f);
+            float neckWave = ShakePhase(age, .065f);
+            float chestWave = ShakePhase(age, .145f);
+            float waistWave = ShakePhase(age, .205f);
+            float hipWave = ShakePhase(age, .26f);
+            ApplyGaitRoll(head, headWave * 11f);
+            Yaw("DEF-head", headWave * 3.5f);
+            ApplyGaitRoll(Bone("DEF-neck.02"), neckWave * 4.5f);
+            ApplyGaitRoll(Bone("DEF-chest"), chestWave * 7f);
+            ApplyGaitRoll(Bone("DEF-spine.02"), waistWave * 2.8f);
+            ApplyGaitRoll(pelvis, hipWave * 3.8f);
+            ApplyEar("DEF-ear.01.L", "DEF-ear.02.L", neckWave * -5f, headWave * 4f);
+            ApplyEar("DEF-ear.01.R", "DEF-ear.02.R", neckWave * -5f, headWave * -4f);
+        }
+
+        private float ShakePhase(float age, float delay)
+        {
+            float phase = age - delay;
+            return microActionSide * Mathf.Sin(phase * (2f * Mathf.PI * 3.25f)) * Pulse(phase, .06f, .20f, .55f, 1.01f);
         }
 
         private bool TryLookAngles(Transform target, float range, float maxBearing, out Vector2 angles)

@@ -20,6 +20,7 @@ namespace Wjy.DogTraining
             allowWandering = enabled;
             approaching = false; chooseAfterPause = false;
             target = transform.position;
+            if (HasCommittedArrivalFocus) return;
             if (!IsPerforming)
             {
                 CurrentAction = enabled ? "wander" : "idle";
@@ -90,7 +91,7 @@ namespace Wjy.DogTraining
             public Vector3 Contact, SwingStart, Landing;
             public float SwingProgress, SwingHeight, SwingFraction, WristPitch;
             public float LandedAt, SupportError;
-            public Vector3 SpinStart, PounceStart;
+            public Vector3 SpinStart, PlayStart;
         }
         public Transform VisualRoot => visual;
         public bool LastFetchSucceeded { get; private set; }
@@ -334,12 +335,16 @@ namespace Wjy.DogTraining
                 {
                     transform.rotation = SpinRotation(SpinAngle(actionAge));
                 }
+                else if (IsPlayBow(CurrentAction))
+                {
+                    if (actionAge < playBowTurnEnd) FaceUser(dt);
+                }
                 // Keep the support paws anchored once the dog settles into a standing or seated pose.
-                else if (CurrentAction == "invite" ? actionAge < .68f :
-                    CurrentAction != "pet" && CurrentAction != "pounce" && CurrentAction != "sniff" &&
+                else if (CurrentAction != "pet" && CurrentAction != "pounce" && CurrentAction != "sniff" &&
                     CurrentAction != "refuse" && actionAge < (CurrentAction == "paw" ? .22f : .45f)) FaceUser(dt);
                 return;
             }
+            if (HoldPositionForArrival(dt) || IsFinishingIdleAction) return;
             if (!allowWandering)
             {
                 StateLabel = "原地等待训练"; CurrentAction = "idle";
@@ -444,10 +449,7 @@ namespace Wjy.DogTraining
             pickupBlend = Blend(pickupBlend, loweringToPickUp ? 1f : 0f, dt, 12f);
             float pawTarget = IsPerforming && CurrentAction == "paw" ? 1f : 0f;
             pawBlend = EasePose(ref pawPhase, pawTarget, dt, .53f, .46f);
-            float bowTarget = CurrentAction == "invite"
-                ? EaseBetween(.68f, .95f, actionAge) * (1f - EaseBetween(1.55f, 1.88f, actionAge))
-                : CurrentAction == "bow" ? 1f : 0f;
-            bowBlend = Blend(bowBlend, IsPerforming ? bowTarget : 0f, dt, 8f);
+            bowBlend = IsPerforming && IsPlayBow(CurrentAction) ? PlayBowWeight() : 0f;
             float petTarget = IsPerforming && CurrentAction == "pet"
                 ? 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, PetDuration, actionAge))
                 : 0f;
@@ -481,18 +483,18 @@ namespace Wjy.DogTraining
             for (int side = 0; side < 2; side++)
             {
                 string suffix = side == 0 ? ".L" : ".R";
-                Bend("DEF-scapula" + suffix, crouchBlend * 8f + bowBlend * 9f + pickupBlend * 6f -
+                Bend("DEF-scapula" + suffix, crouchBlend * 8f + bowBlend * 7f + pickupBlend * 6f -
                     (side == 1 ? 7f * pawLift : 0f));
-                Bend("DEF-front_upper" + suffix, crouchBlend * 20f - sitBlend * 9f + bowBlend * 22f + pickupBlend * 9f);
-                Bend("DEF-front_forearm" + suffix, -crouchBlend * 52f - bowBlend * 31f - pickupBlend * 21f);
+                Bend("DEF-front_upper" + suffix, crouchBlend * 20f - sitBlend * 9f + bowBlend * 14f + pickupBlend * 9f);
+                Bend("DEF-front_forearm" + suffix, -crouchBlend * 52f - bowBlend * 35f - pickupBlend * 21f);
                 Bend("DEF-front_paw" + suffix, crouchBlend * 18f + sitBlend * 7f);
                 Bend("DEF-hind_thigh" + suffix, -sitBlend * 56f - crouchBlend * 30f - pickupBlend * 12f);
                 Bend("DEF-hind_shin" + suffix, sitBlend * 84f + crouchBlend * 58f + pickupBlend * 21f);
                 Bend("DEF-hind_hock" + suffix, -sitBlend * 34f - crouchBlend * 28f - pickupBlend * 10f);
             }
-            Bend("DEF-pelvis", -sitBlend * 35f + bowBlend * 17f);
-            Bend("DEF-spine.01", -sitBlend * 7f + bowBlend * 20f);
-            Bend("DEF-spine.02", sitBlend * 7f + bowBlend * 10f + pickupBlend * 7f);
+            Bend("DEF-pelvis", -sitBlend * 35f + bowBlend * 10f);
+            Bend("DEF-spine.01", -sitBlend * 7f + bowBlend * 14f);
+            Bend("DEF-spine.02", sitBlend * 7f + bowBlend * 8f + pickupBlend * 7f);
             float chestSettle = EaseBetween(.12f, .94f, sitBlend);
             float neckSettle = EaseBetween(.19f, 1f, crouchBlend);
             Bend("DEF-chest", chestSettle * 21f + bowBlend * 5f + pickupBlend * 8f);
@@ -510,13 +512,19 @@ namespace Wjy.DogTraining
             AddPlayPitch("DEF-head", 4f * pawWeight);
             Yaw("DEF-head", 5f * pawLift);
             AnimateTail(dt);
-            float bodyDrop = sitBlend * 0.194f + crouchBlend * 0.212f + bowBlend * 0.035f + pickupBlend * 0.11f;
+            float restSettle = CurrentAction == "restSpot" && IsPerforming ? EaseBetween(.64f, 1f, crouchBlend) : 0f;
+            AddPlayPitch("DEF-neck.01", 9f * restSettle);
+            AddPlayPitch("DEF-neck.02", 12f * restSettle);
+            AddPlayPitch("DEF-head", -6f * restSettle);
+            float bodyDrop = sitBlend * 0.194f + crouchBlend * 0.212f + bowBlend * 0.028f + pickupBlend * 0.11f;
+            bodyDrop += .055f * restSettle;
             bodyDrop += .039f * GroomReach;
             float carriage = breed.IsOriginal ? Mathf.Lerp(.043f, .062f, trotBlend) : Mathf.Lerp(.019f, .033f, trotBlend);
             float suspension = Mathf.Lerp(.0038f, .0115f, trotBlend);
             bodyDrop += (carriage + Mathf.Cos(gaitCycle * 4f * Mathf.PI) * suspension) * locomotionBlend;
             visual.position += (Vector3.down * bodyDrop - transform.right * (.038f * pawWeight)) * bodyScale;
             ApplyPlayPose();
+            ApplyCoatShake();
             UpdateFootContacts(walking, travel, yaw, distance, pawLift, dt, previousTrotBlend, travelSpeed, turnRate);
             coatCorrectives?.Apply(sitBlend, crouchBlend, bowBlend, pawBlend, pickupBlend);
             UpdatePuzzleMark();
@@ -628,7 +636,9 @@ namespace Wjy.DogTraining
 
             bool posing = sitBlend + crouchBlend + pawBlend + bowBlend + pickupBlend > 0.01f;
             bool pouncing = IsPerforming && CurrentAction == "pounce";
-            if (walking || spinning || posing || pouncing) CancelQuietStance();
+            bool bowing = IsPerforming && IsPlayBow(CurrentAction) && PlayBowAge >= 0f;
+            if (bowing) CapturePlayBowContacts();
+            if (walking || spinning || posing || pouncing || bowing) CancelQuietStance();
             else UpdateQuietStance(dt);
             Foot earlySwing = walking && !spinning ? EarlyTurnStep(travel, yaw, turnRate, dt, lastCycle, previousTrotBlend) : null;
             foreach (Foot foot in feet)
@@ -666,11 +676,15 @@ namespace Wjy.DogTraining
                     if (Mathf.Abs(yaw) > 0.3f || Mathf.Abs(torsoTurn) > 0.06f)
                         goal = KeepFootOnOwnSide(foot, goal);
                 }
+                else if (bowing)
+                {
+                    goal = PlayBowFootGoal(foot);
+                }
                 else if (posing)
                 {
                     float raised = foot.Front && foot.Right ? pawLift : 0f;
                     float groomTuck = foot.Front && foot.Right == (microActionSide > 0f) ? GroomReach : 0f;
-                    float foreOffset = crouchBlend * .15f + bowBlend * .17f + pickupBlend * .035f;
+                    float foreOffset = crouchBlend * .15f + pickupBlend * .035f;
                     float rearOffset = sitBlend * .075f + crouchBlend * .035f;
                     Vector3 poseGoal = FootGoal(foot, (foot.Front ? foreOffset + raised * .056f - groomTuck * .081f : rearOffset) * bodyScale,
                         (raised * .16f + groomTuck * .039f) * bodyScale);
@@ -693,7 +707,7 @@ namespace Wjy.DogTraining
                     float swing = Mathf.Sin(Mathf.PI * foot.SwingProgress) * Mathf.Lerp(.7f, 1.27f, trotBlend);
                     string side = foot.Right ? ".R" : ".L";
                     if (foot.Front)
-                        Bend("DEF-front_forearm" + side, -crouchBlend * 52f - bowBlend * 31f - pickupBlend * 21f - swing * 24f);
+                        Bend("DEF-front_forearm" + side, -crouchBlend * 52f - bowBlend * 35f - pickupBlend * 21f - swing * 24f);
                     else
                         Bend("DEF-hind_shin" + side, sitBlend * 84f + crouchBlend * 58f + pickupBlend * 21f + swing * 24f);
                 }
@@ -852,6 +866,7 @@ namespace Wjy.DogTraining
                 action != "paw" && action != "bow" && action != "invite" && action != "rest" && action != "pet" &&
                 action != "pounce" && action != "sniff" && action != "burst")
                 throw new ArgumentException("Unsupported dog action.");
+            while (Ready && !IsPerforming && IsFinishingIdleAction) yield return null;
             if (!Ready || IsPerforming) yield break;
             if ((action == "pounce" || action == "burst" || action == "invite" || action == "sniff") && !BeginPlayMotion(action))
             {
@@ -860,7 +875,9 @@ namespace Wjy.DogTraining
             }
             int version = ++actionVersion;
             IsPerforming = true; CurrentAction = action; actionAge = 0;
+            DeferExploration(.7f);
             if (action == "spin") StartSpin();
+            if (IsPlayBow(action)) BeginPlayBow();
             if (action == "bow" || action == "invite" || action == "fetch_toy" || action == "pet" ||
                 action == "pounce" || action == "burst") PlayTailWag();
             if (action == "fetch_lollipop" || action == "fetch_toy")
@@ -876,7 +893,7 @@ namespace Wjy.DogTraining
                     action == "pet" ? "探头回应抚摸" : "歪头，暂时没跟上口令";
                 float duration = action == "spin" ? SpinDuration : action == "refuse" ? 2.1f : action == "rest" ? 2f :
                     action == "pet" ? PetDuration : action == "pounce" ? PounceDuration : action == "sniff" ? SniffDuration :
-                    action == "burst" ? BurstDuration + .24f : action == "invite" ? 2.04f : 1.1f;
+                    action == "burst" ? BurstDuration + .24f : IsPlayBow(action) ? PlayBowDuration : 1.1f;
                 yield return new WaitForSeconds(duration);
                 if (version != actionVersion) yield break;
                 if (action == "pounce" || action == "burst" || action == "invite" || action == "sniff")
@@ -886,6 +903,11 @@ namespace Wjy.DogTraining
             yield return new WaitForSeconds(hold < 0f ? resumeDelay : hold);
             if (version != actionVersion) yield break;
             IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
+            if (action == "come" && LastComeSucceeded)
+            {
+                QueueOwnerArrivalLook();
+                yield break;
+            }
             if (action == "invite" && allowWandering)
             {
                 StateLabel = "望着你，等你回应";
@@ -902,9 +924,11 @@ namespace Wjy.DogTraining
 
         internal IEnumerator RestAt(Transform spot, bool house, Transform cushion)
         {
+            while (Ready && !IsPerforming && IsFinishingIdleAction) yield return null;
             if (!Ready || IsPerforming || spot == null) yield break;
             int version = ++actionVersion;
             IsPerforming = true;
+            DeferExploration(.7f);
             CurrentAction = "restSpot";
             LastActivitySucceeded = false;
             restSpotCrouch = 0f;
@@ -927,17 +951,17 @@ namespace Wjy.DogTraining
             }
             yield return Travel(approach, false, version);
             if (version != actionVersion) yield break;
-            if (FlatDistance(transform.position, approach) < .18f)
+            if (house && FlatDistance(transform.position, approach) < .18f)
+            {
+                yield return RestInsideHouse(spot, version);
+                if (version != actionVersion) yield break;
+                LastActivitySucceeded = true;
+            }
+            else if (!house && FlatDistance(transform.position, approach) < .18f)
             {
                 Vector3 outside = transform.position;
-                Vector3 inside = spot.TransformPoint(new Vector3(0f, house ? .122f : .095f, house ? -.18f * bodyScale : 0f));
-                Vector3 facing = house ? outside - inside : inside - outside;
-                facing.y = 0f;
-                for (float age = 0; age < 3f && version == actionVersion; age += Time.deltaTime)
-                {
-                    if (Mathf.Abs(TurnTowards(transform.position + facing, Time.deltaTime)) < 2f) break;
-                    yield return null;
-                }
+                Vector3 inside = spot.TransformPoint(new Vector3(0f, .095f, 0f));
+                yield return FaceRestDirection(inside - outside, version);
                 if (version != actionVersion) yield break;
                 for (int pass = 0; pass < 2; pass++)
                 {
@@ -948,20 +972,19 @@ namespace Wjy.DogTraining
                         if (pass == 1) t = 1f - t;
                         Vector3 point = Vector3.Lerp(outside, inside, t);
                         point.y = Mathf.Lerp(outside.y, inside.y, EaseBetween(.05f, .6f, t));
-                        if (!house) point.y += Mathf.Sin(Mathf.PI * t) * .14f;
+                        point.y += Mathf.Sin(Mathf.PI * t) * .14f;
                         transform.position = point;
-                        restSpotCrouch = house ? .75f * EaseBetween(0f, .35f, t) : 0f;
                         yield return null;
                     }
                     if (version != actionVersion) yield break;
                     if (pass == 0)
                     {
                         transform.position = inside;
-                        StateLabel = house ? "在狗窝里趴着休息" : "趴在软垫上休息";
+                        StateLabel = "趴在软垫上休息";
                         restSpotCrouch = 1f;
                         yield return new WaitForSeconds(5f);
                         if (version != actionVersion) yield break;
-                        restSpotCrouch = house ? .75f : 0f;
+                        restSpotCrouch = 0f;
                         StateLabel = "起身回到客厅";
                         yield return new WaitForSeconds(.55f);
                         if (version != actionVersion) yield break;
@@ -978,9 +1001,11 @@ namespace Wjy.DogTraining
         public IEnumerator VisitStation(Vector3 station, string label, bool lowerHead)
         {
             LastActivitySucceeded = false;
+            while (Ready && !IsPerforming && IsFinishingIdleAction) yield return null;
             if (!Ready || IsPerforming) yield break;
             int version = ++actionVersion;
             IsPerforming = true;
+            DeferExploration(.7f);
             CurrentAction = "activity";
             StateLabel = label;
             Vector3 approach = transform.position - station;

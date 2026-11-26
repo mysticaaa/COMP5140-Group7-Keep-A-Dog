@@ -103,6 +103,20 @@ public static class Dog1ConversationValidation
         Debug.Log(responded ? "DOG_CONVERSATION: invitation reply caused play or rest" :
             "DOG_CONVERSATION_LIMIT: invitation reply currently does not execute a grounded play or rest action");
 
+        var arrivalLesson = Get<DogAgent>(training, "agent");
+        arrivalLesson.Decide("过来");
+        var arrivalDecision = arrivalLesson.Decide("过来");
+        arrivalLesson.ReportExecution(arrivalDecision, true);
+        Require(arrivalLesson.CanReward, "Successful come is eligible for praise");
+        yield return (IEnumerator)Call(training, "OfferPlay");
+        var playInvitation = typeof(Dog1Training).GetProperty("HasPlayInvitation", Private);
+        Require((bool)playInvitation.GetValue(training) && arrivalLesson.CanReward,
+            "The invitation appears without taking the come lesson's pending reward");
+        Call(training, "ApplyFeedback", true);
+        Require(!new DogAgent(path).Decide("过来").IsRefusal && (bool)playInvitation.GetValue(training),
+            "The reward still trains come while the play invitation remains open");
+        Debug.Log("DOG_CONVERSATION: play invitation and come reward coexist");
+
         string fixtureOrigin = Environment.GetEnvironmentVariable("CITYDOG_AGENT_FIXTURE_ORIGIN");
         if (string.IsNullOrWhiteSpace(fixtureOrigin))
         {
@@ -121,7 +135,8 @@ public static class Dog1ConversationValidation
             string prefix = mode == "allowed" ? "场景选择 · " : "麦粒 · ";
             yield return Voice(training, "看看我", () => sawResponse |= dog.IsPlayingMicroAction &&
                 Get<string>(training, "reply").StartsWith(prefix, StringComparison.Ordinal));
-            Require(sawResponse, "No eligible motion or local fallback for fixture mode " + mode);
+            Require(sawResponse, "No eligible motion or local fallback for fixture mode " + mode +
+                ". Last reply: " + Get<string>(training, "reply"));
             Debug.Log("DOG_CONVERSATION: model scene motion passed for " + mode);
         }
         training.endpoint = new Uri(fixture, "invite").AbsoluteUri;
