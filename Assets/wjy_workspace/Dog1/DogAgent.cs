@@ -30,6 +30,7 @@ namespace KeepADog.Demo
         public DogAgentAction[] Actions { get; internal set; }
         public string ControllerDecision { get; internal set; } = "";
         public string ValidationError { get; internal set; } = "";
+        public DogTrainingDirective Training { get; internal set; }
 
         internal DogAgentDecision(string reply, DogIntent intent, string target, bool isRecall, bool isRefusal = false, string[] steps = null)
         {
@@ -108,6 +109,16 @@ namespace KeepADog.Demo
         private bool ActiveTrial => trial != null && DateTime.UtcNow - trial.Time <= RecentWindow;
 
         public void CancelPendingDecision() => generation++;
+
+        internal void DiscardFeedback(DogAgentDecision expected)
+        {
+            if (expected != null && trial != null && ReferenceEquals(trial.Decision, expected)) trial = null;
+        }
+
+        internal void DiscardCompletedFeedback()
+        {
+            if (trial != null && (trial.Outcome == Outcome.Succeeded || trial.Outcome == Outcome.Failed)) trial = null;
+        }
 
         public DogAgentDecision Decide(string input)
         {
@@ -295,7 +306,8 @@ namespace KeepADog.Demo
                 decision = Wait(outcome.Reply);
             else if (outcome.Actions.Length == 1 && TryMapPrimitive(outcome.Actions[0], out DogIntent intent, out string target))
                 decision = outcome.LearningCondition == "owner_sad"
-                    ? StartTrial(intent, target, true, false) : StartCommand(intent, target);
+                    ? StartTrial(intent, target, true, false) : outcome.Training?.mode == "practice"
+                        ? StartTrial(intent, target, false, false) : StartCommand(intent, target);
             else
             {
                 trial = null;
@@ -304,6 +316,7 @@ namespace KeepADog.Demo
             decision.Actions = outcome.Actions;
             decision.ControllerDecision = outcome.ControllerDecision;
             decision.ValidationError = outcome.ValidationError;
+            decision.Training = outcome.Training;
             return decision;
         }
 
@@ -580,10 +593,11 @@ namespace KeepADog.Demo
             public readonly string ControllerDecision;
             public readonly string ValidationError;
             public readonly string LearningCondition;
+            public readonly DogTrainingDirective Training;
 
             public Interpretation(SpeechKind kind, DogIntent intent = DogIntent.Wait, string target = "", string reply = "",
                 string[] steps = null, DogAgentAction[] actions = null, string controllerDecision = "", string validationError = "",
-                string learningCondition = "none")
+                string learningCondition = "none", DogTrainingDirective training = null)
             {
                 Kind = kind;
                 Intent = intent;
@@ -594,6 +608,7 @@ namespace KeepADog.Demo
                 ControllerDecision = controllerDecision;
                 ValidationError = validationError;
                 LearningCondition = learningCondition;
+                Training = training;
             }
         }
 

@@ -78,6 +78,30 @@ public static class Dog1PhysicalPropsValidation
 
         Vector3 home = body.position;
         var rightGrip = Field(trainer, "rightToyGrip");
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, true);
+        Require(Equals(toy.GetType().GetProperty("Holder", Private).GetValue(toy), right) &&
+            (bool)Invoke(trainer, "PropBlocksUi", true), "the trigger grabs the ball and owns the input");
+        rightGrip.GetType().GetField("Velocity").SetValue(rightGrip, Vector3.forward * 3f);
+        rightGrip.GetType().GetField("PreviousPosition").SetValue(rightGrip, home);
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, false);
+        Require(body.velocity.z > 2.9f && (bool)Invoke(trainer, "PropBlocksUi", true),
+            "trigger release throws the ball without clicking the menu");
+        Invoke(toy, "SetHome", home, Quaternion.identity);
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, false);
+        Require(!(bool)Invoke(trainer, "PropBlocksUi", true), "the UI unlocks after a completed trigger release");
+
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, true);
+        Invoke(trainer, "ResetGrip", rightGrip, true);
+        rightGrip.GetType().GetField("TriggerPressed").SetValue(rightGrip, true);
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, true);
+        Require(Field(rightGrip, "Toy") == null && (bool)Invoke(trainer, "PropBlocksUi", true),
+            "a held trigger after pause or tracking reset cannot grab again or press the menu");
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, false);
+        Require((bool)Invoke(trainer, "PropBlocksUi", true), "the reset trigger release is still consumed by the prop");
+        Invoke(trainer, "UpdateGrabButtons", true, rightGrip, home, Quaternion.identity, false, false);
+        Require(!(bool)Invoke(trainer, "PropBlocksUi", true), "a fresh menu press is allowed after the reset trigger release");
+        Invoke(toy, "SetHome", home, Quaternion.identity);
+
         Invoke(trainer, "UseGripPress", true, rightGrip, toy, home, Quaternion.identity);
         Require(Equals(toy.GetType().GetProperty("Holder", Private).GetValue(toy), right) &&
             !(bool)Field(trainer, "xrInteract"), "right grip takes the toy without also using the fixture");
@@ -104,6 +128,41 @@ public static class Dog1PhysicalPropsValidation
         Require(!(bool)Invoke(toy, "TryHold", right), "a hand cannot take a toy from the dog's mouth");
         Invoke(toy, "ReleaseFromDog", home, Quaternion.identity);
         Require(!body.isKinematic && body.velocity.sqrMagnitude < .001f, "dog puts toy down without adding throw velocity");
+
+        var world = Field(trainer, "world");
+        // The test drives tracked input directly. Skip the desktop update that clears headset grips.
+        trainer.enabled = false;
+        foreach (string name in new[] { "FoodBowl", "WaterBowl" })
+        {
+            var bowl = (Component)world.GetType().GetProperty(name, Private).GetValue(world);
+            Vector3 start = bowl.transform.position;
+            var bowlBody = bowl.GetComponent<Rigidbody>();
+            Quaternion tiltedHand = Quaternion.Euler(39f, 50f, 23f);
+            Invoke(trainer, "UpdateGrabButtons", true, rightGrip, start, tiltedHand, false, true);
+            Require(Equals(Field(rightGrip, "Toy"), bowl) && bowlBody.isKinematic,
+                name + " is a reachable trigger target");
+            Require(!(bool)bowl.GetType().GetProperty("CanFetch", Private).GetValue(bowl) &&
+                !(bool)bowl.GetType().GetProperty("IsSettled", Private).GetValue(bowl),
+                name + " held by a hand is unavailable for eating or fetching");
+            Invoke(trainer, "UpdateGrabButtons", true, rightGrip, start + Vector3.up * .35f, Quaternion.identity, false, true);
+            for (int i = 0; i < 10; i++) yield return new WaitForFixedUpdate();
+            Require(bowlBody.position.y > start.y + .25f && Vector3.Dot(bowl.transform.up, Vector3.up) > .99f,
+                name + " follows the hand and stays level: start " + start.ToString("F3") + ", current " +
+                bowlBody.position.ToString("F3") + ", up " + bowl.transform.up.ToString("F3"));
+            string positionProperty = name == "FoodBowl" ? "FoodPosition" : "WaterPosition";
+            Vector3 livePosition = (Vector3)world.GetType().GetProperty(positionProperty).GetValue(world);
+            Require(Vector3.Distance(livePosition, bowl.transform.position) < .001f,
+                name + " care station follows the bowl's actual moved position");
+            rightGrip.GetType().GetField("Velocity").SetValue(rightGrip, Vector3.right * 4f);
+            Vector3 dropped = bowlBody.position;
+            Invoke(trainer, "UpdateGrabButtons", true, rightGrip, start, Quaternion.identity, false, false);
+            for (int i = 0; i < 7; i++) yield return new WaitForFixedUpdate();
+            Require(!bowlBody.isKinematic && bowlBody.position.y < dropped.y - .04f &&
+                Vector3.ProjectOnPlane(bowlBody.position - dropped, Vector3.up).sqrMagnitude < .001f &&
+                Vector3.Dot(bowl.transform.up, Vector3.up) > .99f,
+                name + " drops vertically and refuses horizontal throwing velocity");
+        }
+        trainer.enabled = true;
 
         var life = Field(trainer, "life");
         object progress = Field(life, "data");

@@ -12,7 +12,7 @@ namespace Wjy.DogTraining
             public DogToyBody Toy;
             public Vector3 PreviousPosition, Offset, Velocity;
             public Quaternion RotationOffset;
-            public bool Tracked, Pressed, Shown;
+            public bool Tracked, Pressed, TriggerPressed, TriggerGrab, BlockUi, Shown;
             public float PresentTime;
         }
 
@@ -41,7 +41,9 @@ namespace Wjy.DogTraining
             Vector3 center = world.ConstrainDogPosition(world.ToyPosition + offset);
             physicalProps[2] = dog.CreateNeighborhoodToy(life.CurrentLocation, center);
             foreach (DogToyBody toy in physicalProps) toy.SetPlayArea(world.ConstrainDogPosition);
-            perception.SetTargets(physicalProps[0].transform, physicalProps[1].transform);
+            perception.SetTargets(physicalProps[0].transform, physicalProps[1].transform,
+                world.FoodBowl != null ? world.FoodBowl.transform : null,
+                world.WaterBowl != null ? world.WaterBowl.transform : null);
             PhysicalPropHint = "";
 
             if (leftGripInput != null) return;
@@ -64,8 +66,8 @@ namespace Wjy.DogTraining
             bool canUse = started && !pause && !choosingBreed && !world.IsElevatorMoving;
             if (!canUse)
             {
-                ResetGrip(leftToyGrip);
-                ResetGrip(rightToyGrip);
+                ResetGrip(leftToyGrip, InHeadset && HeadsetRig.IsTriggerHeld(false));
+                ResetGrip(rightToyGrip, InHeadset && HeadsetRig.IsTriggerHeld(true));
                 DropGrip(desktopToyGrip, false);
                 return;
             }
@@ -92,11 +94,13 @@ namespace Wjy.DogTraining
 
             Quaternion rotation = Quaternion.LookRotation(aim.direction, HeadsetRig.HeadCamera.transform.up);
             bool pressed = ReadGrip(right, grip.Pressed);
+            bool trigger = HeadsetRig.IsTriggerHeld(right);
             if (!grip.Tracked)
             {
                 grip.Tracked = true;
                 grip.PreviousPosition = position;
                 grip.Pressed = pressed;
+                grip.TriggerPressed = trigger;
                 return;
             }
 
@@ -106,23 +110,41 @@ namespace Wjy.DogTraining
                 Vector3.Lerp(grip.Velocity, delta / dt, Mathf.Clamp01(dt * 19f));
             grip.PreviousPosition = position;
 
+            UpdateGrabButtons(right, grip, position, rotation, pressed, trigger);
             if (grip.Toy != null)
             {
-                if (!pressed) DropGrip(grip, true);
+                PhysicalPropHint = (grip.TriggerGrab ? "松开扳机" : "松开握把") +
+                    (grip.Toy.UprightDrop ? "直立放下" : "放下或抛出") + "  ·  " + grip.Toy.Label;
+                if (!grip.Toy.UprightDrop) WatchPresentation(grip, dt);
+            }
+        }
+
+        private void UpdateGrabButtons(bool right, ToyGrip grip, Vector3 position, Quaternion rotation, bool pressed, bool trigger)
+        {
+            // Keep ownership through release and after a pause/tracking reset until the trigger is released.
+            grip.BlockUi = grip.TriggerGrab || (grip.BlockUi && grip.TriggerPressed);
+            if (grip.Toy != null)
+            {
+                if (grip.TriggerGrab ? !trigger : !pressed) DropGrip(grip, true);
                 else FollowGrip(grip, position, rotation);
             }
             else
             {
                 DogToyBody candidate = NearbyToy(position);
-                if (candidate != null) PhysicalPropHint = "握把拿起  ·  " + candidate.Label;
-                if (pressed && !grip.Pressed) UseGripPress(right, grip, candidate, position, rotation);
-            }
-            if (grip.Toy != null)
-            {
-                PhysicalPropHint = "松开握把放下  ·  伸给麦粒看";
-                WatchPresentation(grip, dt);
+                if (candidate != null)
+                {
+                    PhysicalPropHint = "扳机拿起  ·  " + candidate.Label;
+                    if (trigger && !grip.TriggerPressed &&
+                        TryGrip(grip, candidate, position, rotation, right ? DogToyHolder.RightHand : DogToyHolder.LeftHand))
+                    {
+                        grip.TriggerGrab = grip.BlockUi = true;
+                    }
+                }
+                if (grip.Toy == null && pressed && !grip.Pressed)
+                    UseGripPress(right, grip, candidate != null && !candidate.UprightDrop ? candidate : null, position, rotation);
             }
             grip.Pressed = pressed;
+            grip.TriggerPressed = trigger;
         }
 
         private void UseGripPress(bool right, ToyGrip grip, DogToyBody candidate, Vector3 position, Quaternion rotation)
@@ -152,15 +174,20 @@ namespace Wjy.DogTraining
             DogToyBody best = null;
             float bestDistance = .17f;
             foreach (DogToyBody toy in physicalProps)
-            {
-                if (toy == null || toy.Holder != DogToyHolder.Free) continue;
-                Vector3 contact = toy.ClosestPoint(position);
-                float distance = Vector3.Distance(position, contact);
-                if (distance >= bestDistance || !ClearToyRay(position, contact, toy)) continue;
-                best = toy;
-                bestDistance = distance;
-            }
+                ConsiderNearbyProp(toy, position, ref best, ref bestDistance);
+            ConsiderNearbyProp(world.FoodBowl, position, ref best, ref bestDistance);
+            ConsiderNearbyProp(world.WaterBowl, position, ref best, ref bestDistance);
             return best;
+        }
+
+        private static void ConsiderNearbyProp(DogToyBody prop, Vector3 position, ref DogToyBody best, ref float bestDistance)
+        {
+            if (prop == null || prop.Holder != DogToyHolder.Free) return;
+            Vector3 contact = prop.ClosestPoint(position);
+            float distance = Vector3.Distance(position, contact);
+            if (distance >= bestDistance || !ClearToyRay(position, contact, prop)) return;
+            best = prop;
+            bestDistance = distance;
         }
 
         private static bool ClearToyRay(Vector3 from, Vector3 to, DogToyBody toy)
@@ -191,21 +218,29 @@ namespace Wjy.DogTraining
             bool nearHand = Vector3.Distance(grip.Toy.transform.position, grip.PreviousPosition) < .32f;
             grip.Toy.Drop(allowThrow && nearHand ? grip.Velocity : Vector3.zero);
             grip.Toy = null;
+            grip.TriggerGrab = false;
             grip.PresentTime = 0f;
             grip.Velocity = Vector3.zero;
         }
 
-        private static void ResetGrip(ToyGrip grip)
+        private static void ResetGrip(ToyGrip grip, bool triggerHeld = false)
         {
+            // Lost tracking cannot prove the consumed trigger was released. Keep ownership until
+            // a tracked UpdateGrabButtons observes and consumes its release frame.
+            bool blockUi = grip.TriggerGrab || grip.BlockUi;
             DropGrip(grip, false);
             grip.Tracked = false;
             grip.Pressed = false;
+            grip.TriggerPressed = triggerHeld;
+            grip.BlockUi = blockUi;
         }
+
+        private bool PropBlocksUi(bool right) => (right ? rightToyGrip : leftToyGrip).BlockUi;
 
         private bool ToyBlocksPetting(bool right)
         {
             ToyGrip hand = right ? rightToyGrip : leftToyGrip;
-            return hand.Toy != null || hand.Pressed;
+            return hand.Toy != null || hand.Pressed || hand.TriggerPressed;
         }
 
         private void WatchPresentation(ToyGrip grip, float dt)
@@ -244,8 +279,8 @@ namespace Wjy.DogTraining
                 else
                 {
                     FollowGrip(desktopToyGrip, position, head.rotation);
-                    WatchPresentation(desktopToyGrip, Time.unscaledDeltaTime);
-                    PhysicalPropHint = "G  放下玩具";
+                    if (!desktopToyGrip.Toy.UprightDrop) WatchPresentation(desktopToyGrip, Time.unscaledDeltaTime);
+                    PhysicalPropHint = "G  放下" + desktopToyGrip.Toy.Label;
                 }
                 return;
             }

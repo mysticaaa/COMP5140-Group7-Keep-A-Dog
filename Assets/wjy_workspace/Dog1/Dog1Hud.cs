@@ -498,6 +498,7 @@ namespace Wjy.DogTraining
                 deepSeekTraceOpen ? selected : button, GUILayout.Width(145)))
                 deepSeekTraceOpen = !deepSeekTraceOpen;
             GUILayout.EndHorizontal();
+            if (!string.IsNullOrEmpty(TrainingResultText)) GUILayout.Label(TrainingResultText, body);
             DrawVoiceControl();
             GUILayout.Space(4);
             if (deepSeekTraceOpen)
@@ -525,7 +526,7 @@ namespace Wjy.DogTraining
             }
 
             GUILayout.Space(7);
-            GUILayout.Label("练习口令", heading);
+            GUILayout.Label("练习口令 · 当前成功率", heading);
             GUILayout.BeginHorizontal();
             Cue("坐下"); Cue("趴下"); Cue("过来");
             GUILayout.EndHorizontal();
@@ -542,7 +543,8 @@ namespace Wjy.DogTraining
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
-            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing && (CanRewardTrick || agent.CanReward);
+            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing &&
+                (CanRewardTrick || agent.CanReward || CanRewardTraining(Time.realtimeSinceStartup));
             if (GUILayout.Button("表扬", primary)) ApplyFeedback(true);
             GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing && (CanRewardTrick || agent.CanGiveFeedback);
             if (GUILayout.Button("再示范", button)) ApplyFeedback(false);
@@ -656,7 +658,15 @@ namespace Wjy.DogTraining
 
         private void Cue(string cue)
         {
-            if (GUILayout.Button(cue, button, GUILayout.ExpandWidth(true))) SubmitPracticeCue(cue);
+            string skill = null;
+            foreach (string id in Dog1TrainingProgress.SkillIds)
+                if (TrainingLabel(id) == cue) { skill = id; break; }
+            string label = skill == null ? cue : cue + "  " + TrainingProbability(skill) + "%";
+            if (GUILayout.Button(label, button, GUILayout.ExpandWidth(true)))
+            {
+                if (skill == null) SubmitPracticeCue(cue);
+                else SubmitTrainingCue(skill);
+            }
         }
 
         private void SendField()
@@ -779,6 +789,7 @@ namespace Wjy.DogTraining
             GUI.enabled = enabled;
             if (!string.IsNullOrEmpty(life.SaveError)) GUILayout.Label(life.SaveError, small);
             if (!string.IsNullOrEmpty(agent.SaveError)) GUILayout.Label(agent.SaveError, small);
+            if (!string.IsNullOrEmpty(trainingProgress?.SaveError)) GUILayout.Label(trainingProgress.SaveError, small);
         }
 
         private void DisposeHud()

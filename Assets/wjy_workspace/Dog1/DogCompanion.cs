@@ -98,6 +98,19 @@ namespace Wjy.DogTraining
         public bool LastFetchSucceeded { get; private set; }
         public bool LastComeSucceeded { get; private set; }
         public bool LastActivitySucceeded { get; private set; }
+        public Func<float> OwnerGroundHeightProvider { private get; set; }
+        public bool OwnerOnSameFloor
+        {
+            get
+            {
+                if (user == null) return false;
+                // A standalone animation probe has no player rig. Dog1 supplies a ground-height provider.
+                if (OwnerGroundHeightProvider == null) return true;
+                float ground = OwnerGroundHeightProvider();
+                return !float.IsNaN(ground) && !float.IsInfinity(ground) &&
+                    Mathf.Abs(ground - transform.position.y) <= .6f;
+            }
+        }
         public Func<Vector3, Vector3> PositionLimit { private get; set; }
         public Vector3 ToyStation { private get; set; }
         private float pawBlend, bowBlend;
@@ -1026,8 +1039,8 @@ namespace Wjy.DogTraining
             Vector3 goal = Limit(station + approach.normalized * (lowerHead ? 0.43f : 0.2f));
             yield return Travel(goal, false, version);
             if (version != actionVersion) yield break;
-            LastActivitySucceeded = FlatDistance(transform.position, goal) < 0.23f;
-            if (LastActivitySucceeded)
+            bool reached = FlatDistance(transform.position, goal) < 0.23f;
+            if (reached)
             {
                 loweringToPickUp = lowerHead;
                 for (float elapsed = 0; elapsed < 1.3f && actionVersion == version; elapsed += Time.deltaTime)
@@ -1038,6 +1051,7 @@ namespace Wjy.DogTraining
                 loweringToPickUp = false;
             }
             if (version != actionVersion) yield break;
+            LastActivitySucceeded = reached;
             IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
             pauseUntil = Time.time + 0.45f;
             nextApproach = Time.time + 8f;
@@ -1140,12 +1154,18 @@ namespace Wjy.DogTraining
         private IEnumerator ComeToOwner(int version)
         {
             LastComeSucceeded = false;
+            if (!OwnerOnSameFloor)
+            {
+                StateLabel = "麦粒暂时过不到你所在的楼层，回到同一层再叫它吧";
+                yield break;
+            }
             StateLabel = "正在向你走来";
             yield return Travel(transform.position, true, version);
             if (version != actionVersion) yield break;
             LastComeSucceeded = IsNearOwner();
             if (LastComeSucceeded) PlayTailWag();
-            StateLabel = LastComeSucceeded ? "在你身边摇尾巴" : "这次没能走到你身边";
+            StateLabel = LastComeSucceeded ? "在你身边摇尾巴" :
+                !OwnerOnSameFloor ? "你们不在同一层，麦粒停下来等你" : "这次没能走到你身边";
         }
 
         private Transform ball;
@@ -1159,10 +1179,22 @@ namespace Wjy.DogTraining
                 StateLabel = "目前无法叼取玩具";
                 yield break;
             }
+            if (!OwnerOnSameFloor)
+            {
+                StateLabel = "你们不在同一层，回到麦粒身边再让它叼玩具吧";
+                yield break;
+            }
 
             var physical = item.GetComponent<DogToyBody>();
             if (physical == null) RestoreLollipop();
             string itemName = physical != null ? physical.Label : toy ? "玩具球" : "棒棒糖毛绒玩具";
+            if (physical != null && toy)
+            {
+                float settleUntil = Time.time + 1.4f;
+                while (version == actionVersion && physical.Holder == DogToyHolder.Free &&
+                    !physical.IsSettled && Time.time < settleUntil) yield return null;
+                if (version != actionVersion) yield break;
+            }
             if (physical != null && !physical.CanFetch)
             {
                 StateLabel = "等" + itemName + "落稳后再叼回来";
@@ -1207,7 +1239,8 @@ namespace Wjy.DogTraining
             if (version != actionVersion) yield break;
             if (IsNearOwner())
             {
-                Vector3 dropSpot = transform.position + transform.forward * .47f + Vector3.up * .09f;
+                Vector3 towardOwner = Vector3.ProjectOnPlane(user.position - transform.position, Vector3.up);
+                Vector3 dropSpot = transform.position + Vector3.ClampMagnitude(towardOwner * .55f, .47f) + Vector3.up * .09f;
                 if (physical != null) physical.ReleaseFromDog(dropSpot, transform.rotation);
                 else
                 {
@@ -1228,7 +1261,7 @@ namespace Wjy.DogTraining
                     carrying = false;
                     carriedObject = null;
                 }
-                StateLabel = "没能走到你身边，先把" + itemName + "放下了";
+                StateLabel = (!OwnerOnSameFloor ? "你们不在同一层，麦粒先把" : "没能走到你身边，先把") + itemName + "放下了";
             }
         }
 
@@ -1240,7 +1273,7 @@ namespace Wjy.DogTraining
             {
                 if (followUser)
                 {
-                    if (user == null) break;
+                    if (user == null || !OwnerOnSameFloor) break;
                     if (IsNearOwner()) { TurnTowards(user.position, Time.deltaTime); break; }
                     currentTarget = OwnerApproachTarget();
                 }
@@ -1258,7 +1291,7 @@ namespace Wjy.DogTraining
 
         private bool IsNearOwner()
         {
-            return user != null && FlatDistance(transform.position, user.position) <= OwnerStandOff + 0.12f;
+            return OwnerOnSameFloor && FlatDistance(transform.position, user.position) <= OwnerStandOff + 0.12f;
         }
 
         private Vector3 OwnerApproachTarget()

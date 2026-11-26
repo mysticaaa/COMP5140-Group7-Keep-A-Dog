@@ -110,6 +110,9 @@ namespace Wjy.DogTraining
             XrImage(panel.transform, "麦粒的回应", new Vector2(36,122), new Vector2(748,92), BookNote);
             xrReply = XrText(panel.transform, "", new Vector2(53,128), new Vector2(714,78), 24);
             xrReply.alignment = TextAnchor.MiddleLeft;
+            xrReply.resizeTextForBestFit = true;
+            xrReply.resizeTextMinSize = 17;
+            xrReply.resizeTextMaxSize = 24;
             xrVoice = XrText(panel.transform, "", new Vector2(36,85), new Vector2(748,32), 22);
             xrVoice.color = Olive;
             xrInputTrack = XrImage(panel.transform, "录音音量底", new Vector2(36,79), new Vector2(748,4), BookTab);
@@ -136,6 +139,7 @@ namespace Wjy.DogTraining
                 var pointer = new GameObject(right ? "Dog1 right ray" : "Dog1 left ray").AddComponent<Dog2ControllerRay>();
                 pointer.transform.SetParent(host.transform, false);
                 pointer.Rig = HeadsetRig; pointer.TargetCanvas = HeadsetCanvas; pointer.RightHand = right;
+                pointer.BlockInput = () => PropBlocksUi(right);
             }
             PlaceHeadset(); BuildHeadsetPage(); panel.SetActive(false);
         }
@@ -266,11 +270,18 @@ namespace Wjy.DogTraining
             }
             else if (xrTab == 2)
             {
-                string[] commands={"坐下","趴下","抬右爪","转圈","伏身邀玩","把玩具拿来"};
-                for(int i=0;i<commands.Length;i++) {string command=commands[i]; PageButton(command,i,()=>SubmitPracticeCue(command),()=>Ready);}
-                XrText(xrPage, "等它做完，再表扬。也可以按住 A 说出你自己的口令。",
+                var skills = Dog1TrainingProgress.SkillIds;
+                for (int i = 0; i < skills.Count; i++)
+                {
+                    string skill = skills[i];
+                    PageButton(TrainingLabel(skill), i, () => SubmitTrainingCue(skill),
+                        () => Ready && !VoiceListening && !VoiceFinalizing,
+                        () => TrainingLabel(skill) + "\n" + TrainingProbability(skill) + "%");
+                }
+                XrText(xrPage, "完成练习后，12 秒内开始说话表扬它。也可以按 A 说自己的口令。",
                     new Vector2(0,251), new Vector2(748,49), 25);
-                StoryQuickButton("真棒 · 奖励", 0, () => ApplyFeedback(true), () => Ready && (CanRewardTrick || agent.CanReward));
+                StoryQuickButton("真棒 · 奖励", 0, () => ApplyFeedback(true), () => Ready &&
+                    (CanRewardTrick || agent.CanReward || CanRewardTraining(Time.realtimeSinceStartup)));
             }
             else if (xrTab == 3)
             {

@@ -58,6 +58,7 @@ namespace Wjy.DogTraining
             agent = new DogAgent(SaveOverride(testSaves, "dog-memory.json"));
             routines = new DogRoutines(SaveOverride(testSaves, "dog-routine.json"));
             life = new DogLifeProgress(SaveOverride(testSaves, "dog-life.json"));
+            trainingProgress = new Dog1TrainingProgress(SaveOverride(testSaves, "dog-training-skills.json"));
             speech = gameObject.AddComponent<Dog2SpeechInput>();
             speech.TranscriptLogDirectory = SaveOverride(testSaves, "VoiceTranscripts") ??
                 Path.Combine(Application.persistentDataPath, "VoiceTranscripts");
@@ -173,6 +174,8 @@ namespace Wjy.DogTraining
 
         private void ConfigureCompanion(bool keepPose = false)
         {
+            InvalidateTrainingFeedback();
+            ConfigureOwnerReachability();
             dog.PositionLimit = world.ConstrainDogPosition;
             dog.HasPlayClearance = world.HasDogPlayClearance;
             if (keepPose) dog.ConfigurePracticeArea(world.FetchPosition, world.ToyPosition);
@@ -182,8 +185,8 @@ namespace Wjy.DogTraining
             ConfigurePhysicalProps();
             var points = new System.Collections.Generic.List<DogCompanion.ExplorationPoint>
             {
-                new DogCompanion.ExplorationPoint("水碗", world.WaterPosition),
-                new DogCompanion.ExplorationPoint("食盆", world.FoodPosition)
+                new DogCompanion.ExplorationPoint("水碗", world.WaterPosition, world.WaterBowl?.transform),
+                new DogCompanion.ExplorationPoint("食盆", world.FoodPosition, world.FoodBowl?.transform)
             };
             foreach (var toy in physicalProps)
                 if (toy != null) points.Add(new DogCompanion.ExplorationPoint(toy.Label, toy.transform.position, toy.transform));
@@ -285,7 +288,7 @@ namespace Wjy.DogTraining
 
         private IEnumerator RestWithFurnitureCore(bool house, bool playerInitiated)
         {
-            if (playerInitiated) ClearTrickReward();
+            if (playerInitiated) { ClearTrickReward(); InvalidateTrainingFeedback(); }
             bool wasBusy = busy;
             busy = true;
             try
@@ -397,6 +400,8 @@ namespace Wjy.DogTraining
         {
             if (!Ready || VoiceListening || VoiceFinalizing) return;
             string blocked = life.GetBlockReason(action);
+            if (string.IsNullOrEmpty(blocked) && (action == DogCareAction.Feed || action == DogCareAction.Water))
+                blocked = BowlAccessIssue(action);
             if (!string.IsNullOrEmpty(blocked))
             {
                 Notify(blocked);
@@ -409,6 +414,7 @@ namespace Wjy.DogTraining
             }
             if (action == DogCareAction.Walk)
             {
+                InvalidateTrainingFeedback();
                 walking = true;
                 dog.SetWalkingTogether(true);
                 reply = InHeadset ? "和麦粒一起走到发光路标，用左摇杆走动。" : "和麦粒一起走到发光路标。按住右键，用 WASD 往前走。";
@@ -438,6 +444,7 @@ namespace Wjy.DogTraining
 
         private IEnumerator Care(DogCareAction action)
         {
+            InvalidateTrainingFeedback();
             busy = true;
             bool success = true;
             switch (action)
@@ -447,10 +454,10 @@ namespace Wjy.DogTraining
                     bool food = action == DogCareAction.Feed;
                     world.FillBowl(action);
                     reply = food ? "你添了一份狗粮，麦粒小跑去饭碗。" : "你换了一碗干净的水，麦粒闻声跑来。";
-                    yield return dog.VisitStation(food ? world.FoodPosition : world.WaterPosition, food ? "去吃饭" : "去喝水", true);
-                    success = dog.LastActivitySucceeded;
-                    if (success) world.EmptyBowl(action);
-                    break;
+                    yield return ConsumeFromBowl(action);
+                    busy = false;
+                    if (!lastBowlCareSucceeded) Notify(reply);
+                    yield break;
                 case DogCareAction.Clean:
                     reply = "用拾便袋清理地面，再把袋子放进垃圾桶。";
                     yield return new WaitForSeconds(0.7f);
@@ -591,12 +598,14 @@ namespace Wjy.DogTraining
         {
             if (!VoiceAvailable) return;
             speech.StartListening();
+            voiceStartedAt = speech.IsListening ? Time.realtimeSinceStartup : -1f;
             if (speech.IsListening && Ready) dog.AttendToUser(4f);
         }
         private void EndVoice() { if (VoiceListening) speech.StopAndSend(); }
         private void CancelVoice()
         {
             keyboardVoice = false;
+            voiceStartedAt = -1f;
             if (VoicePending)
             {
                 ClearPendingCommands();
@@ -613,6 +622,8 @@ namespace Wjy.DogTraining
         {
             string input = DogSpeechText.Normalize(transcript);
             var trace = AddCommandTrace(input, transcript);
+            if (voiceStartedAt >= 0f) trace.InputStartedAt = voiceStartedAt;
+            voiceStartedAt = -1f;
             if (string.IsNullOrWhiteSpace(input))
             {
                 trace.Result = "识别到语音，但没有可以发送的文字。";
@@ -634,13 +645,17 @@ namespace Wjy.DogTraining
             public string Result = "处理中……";
             public bool ModelRequested;
             public bool LocalControls;
+            public bool PracticeRequested;
+            public string PracticeSkill;
+            public float InputStartedAt;
             public float ExpiresAt = float.PositiveInfinity;
             public readonly List<string> Actions = new List<string>();
         }
 
         private CommandTrace AddCommandTrace(string input, string transcript, bool localControls = false)
         {
-            var trace = new CommandTrace { Input = input, Transcript = transcript, LocalControls = localControls };
+            var trace = new CommandTrace { Input = input, Transcript = transcript, LocalControls = localControls,
+                InputStartedAt = Time.realtimeSinceStartup };
             commandTraces.Insert(0, trace);
             if (commandTraces.Count > 6) commandTraces.RemoveAt(commandTraces.Count - 1);
             return trace;
@@ -737,7 +752,8 @@ namespace Wjy.DogTraining
             busy = true;
             caption = "你 · " + input;
             if (CancelExpiredCommand()) yield break;
-            if (input == "真棒" || input == "好狗狗" || input == "奖励" || input == "做得好")
+            if ((!HasTrainingPraise || activeCommandTrace?.LocalControls == true) &&
+                (input == "真棒" || input == "好狗狗" || input == "奖励" || input == "做得好"))
             {
                 ApplyFeedback(true);
                 busy = false;
@@ -745,6 +761,12 @@ namespace Wjy.DogTraining
             }
             bool explicitControls = activeCommandTrace?.LocalControls == true;
             bool useCommandModel = useModel && !string.IsNullOrWhiteSpace(model);
+            if (activeCommandTrace?.PracticeRequested == true && !useCommandModel)
+            {
+                ClearTrickReward();
+                yield return ExecuteCommandDecision(LocalPracticeDecision(activeCommandTrace.PracticeSkill));
+                yield break;
+            }
             if (!useCommandModel && !explicitControls)
             {
                 reply = "请先在设置里启用 DeepSeek，再用语音或文字告诉麦粒你想做什么。";
@@ -835,6 +857,23 @@ namespace Wjy.DogTraining
         private IEnumerator ExecuteCommandDecision(DogAgentDecision decision)
         {
             reply = decision.Reply;
+            if (activeCommandTrace?.PracticeRequested == true &&
+                (decision.Training?.mode != "practice" || decision.Actions?.Length != 1 ||
+                    decision.Actions[0].id != activeCommandTrace.PracticeSkill))
+            {
+                reply = "模型返回的练习与选中的技能不一致，这次没有执行。请再试一次。";
+                activeCommandTrace.Actions.Add("练习校验阻塞 · 选中的技能 " + activeCommandTrace.PracticeSkill);
+                agent.ReportExecution(decision, false);
+                yield break;
+            }
+            if (decision.Training?.mode == "praise")
+            {
+                ResolveTrainingPraise(decision);
+                yield break;
+            }
+            if (decision.Training?.mode != "practice" &&
+                (decision.Actions?.Length > 0 || decision.Steps?.Length > 0 ||
+                    DogActionSelection.MotionFor(decision) != null)) InvalidateTrainingFeedback();
             if (decision.Actions != null && !decision.IsRefusal)
             {
                 if (string.IsNullOrWhiteSpace(reply) && !string.IsNullOrEmpty(decision.ValidationError))
@@ -891,6 +930,7 @@ namespace Wjy.DogTraining
             public string location;
             public string learnedRoutines;
             public DogCommandOption[] actionCatalog;
+            public TrainingContext training;
 
             public string BlockReason(string motion)
             {
@@ -912,19 +952,26 @@ namespace Wjy.DogTraining
         {
             bool dogReady = dog != null && dog.Ready && !dog.IsPerforming && !pause &&
                 !choosingBreed && !world.IsElevatorMoving;
-            bool ownerAvailable = dog != null && dog.user != null;
+            bool ownerAvailable = dog != null && dog.user != null && dog.OwnerOnSameFloor;
             bool canCarry = ownerAvailable && dog.MuzzleAnchor != null;
             var state = new CommandState
             {
                 location = life.CurrentLocation.ToString(),
                 learnedRoutines = routines.Summary,
+                training = CaptureTrainingContext(),
                 satiety = life.Satiety,
                 energy = life.Energy,
                 hydration = life.Hydration,
                 mood = life.Mood,
                 cleanliness = life.Cleanliness,
+                foodAvailable = string.IsNullOrEmpty(BowlCommandIssue(DogCareAction.Feed)),
+                waterAvailable = string.IsNullOrEmpty(BowlCommandIssue(DogCareAction.Water)),
+                foodReason = BowlCommandIssue(DogCareAction.Feed),
+                waterReason = BowlCommandIssue(DogCareAction.Water),
                 dogReady = dogReady,
                 ownerAvailable = ownerAvailable,
+                ownerUnavailableReason = dog != null && dog.user != null && !dog.OwnerOnSameFloor
+                    ? "你和麦粒在不同楼层，先回到它身边再互动吧。" : "当前找不到主人的位置。",
                 ballAvailable = canCarry && dog.CanUsePhysicalBall,
                 lollipopAvailable = canCarry && physicalProps[1] != null && physicalProps[1].CanFetch,
                 pounceClear = dogReady && dog.CanPounce(),
@@ -1066,7 +1113,9 @@ namespace Wjy.DogTraining
 
         internal void ApplyFeedback(bool positive)
         {
-            bool rewarded = positive && (CanRewardTrick || agent.CanReward);
+            bool trainingReward = positive && RewardTraining(activeCommandTrace?.InputStartedAt ?? Time.realtimeSinceStartup);
+            if (!positive) pendingTrainingSkill = null;
+            bool rewarded = positive && (trainingReward || CanRewardTrick || agent.CanReward);
             if (CanRewardTrick)
             {
                 if (positive && !string.IsNullOrEmpty(pendingName))
@@ -1077,6 +1126,7 @@ namespace Wjy.DogTraining
                 ClearTrickReward();
             }
             else reply = agent.Feedback(positive).Reply;
+            if (trainingReward) reply = TrainingResultText;
             if (rewarded)
             {
                 dog.PlayTailWag();

@@ -61,6 +61,7 @@ namespace Wjy.DogTraining
         private void ChooseStoryOption(int option)
         {
             if (!Ready || option < 0 || option >= StoryChoiceLabels.Count) return;
+            InvalidateTrainingFeedback();
             if (HasPlayInvitation)
             {
                 StartCoroutine(PerformInvitationChoice(InvitationIds[option], ""));
@@ -81,6 +82,7 @@ namespace Wjy.DogTraining
 
         private IEnumerator RestTogetherHere()
         {
+            InvalidateTrainingFeedback();
             busy = true;
             try
             {

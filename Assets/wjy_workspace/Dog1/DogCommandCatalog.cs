@@ -24,12 +24,15 @@ namespace Wjy.DogTraining
         public float cleanliness;
         public bool dogReady;
         public bool ownerAvailable;
+        public string ownerUnavailableReason;
         public bool ballAvailable;
         public bool lollipopAvailable;
         public bool pounceClear;
         public bool burstClear;
         public bool houseAvailable;
         public bool cushionAvailable;
+        public bool foodAvailable, waterAvailable;
+        public string foodReason, waterReason;
     }
 
     public static class DogCommandCatalog
@@ -45,7 +48,7 @@ namespace Wjy.DogTraining
             result.Add(Option("crouch", "none", "短暂趴下，也能恢复体力；想歇一会儿应选 rest", busy, "posture", "calm", "training", "rest"));
             result.Add(Option("spin", "none", "转一圈", First(busy, effort), "movement", "spin", "training"));
             result.Add(Option("come", "none", "走到主人身边", First(busy,
-                state.ownerAvailable ? "" : "当前找不到主人的位置。"), "attention", "approach", "owner"));
+                state.ownerAvailable ? "" : state.ownerUnavailableReason ?? "当前找不到主人的位置。"), "attention", "approach", "owner"));
             result.Add(Option("paw", "none", "抬起右前爪", busy, "gesture", "paw", "training"));
             result.Add(Option("bow", "none", "伏身邀玩（旧口令拜一拜），前身伏低后等待主人回应", First(busy, effort), "play", "bow", "gesture", "invitation"));
             result.Add(Option("invite", "none", "伏身邀玩后看向主人等待回应", First(busy, effort), "play", "invite", "wait"));
@@ -55,16 +58,22 @@ namespace Wjy.DogTraining
                 state.burstClear ? "" : "附近没有可安全跑动的路线。"), "play", "run", "clear_space"));
             result.Add(Option("sniff", "none", "低头闻一闻", busy, "explore", "sniff", "calm"));
             result.Add(Option("fetch_toy", "none", "叼回玩具球", First(busy, effort,
+                state.ownerAvailable ? "" : state.ownerUnavailableReason ?? "当前找不到主人的位置。",
                 state.ballAvailable ? "" : "玩具球暂不可取，先放下并等它落稳。"), "toy", "ball", "fetch"));
             result.Add(Option("fetch_lollipop", "none", "叼回棒棒糖毛绒玩具", First(busy, effort,
+                state.ownerAvailable ? "" : state.ownerUnavailableReason ?? "当前找不到主人的位置。",
                 state.lollipopAvailable ? "" : "毛绒玩具暂不可取，先放下并等它落稳。"), "toy", "plush", "fetch"));
+            result.Add(Option("eat", "none", "走到当前饭碗位置吃饭", First(busy,
+                state.foodAvailable ? "" : state.foodReason ?? "饭碗目前不可用。"), "care", "food", "bowl"));
+            result.Add(Option("drink", "none", "走到当前水碗位置喝水", First(busy,
+                state.waterAvailable ? "" : state.waterReason ?? "水碗目前不可用。"), "care", "water", "bowl"));
             result.Add(Option("rest", "none", "就地趴一会儿、歇一会儿，恢复体力并记录休息", busy, "rest", "calm", "care"));
             result.Add(Option("rest", "house", "走进狗屋，转身后休息", First(busy,
                 state.houseAvailable ? "" : "当前场景没有可用的狗屋休息点。"), "rest", "house", "care"));
             result.Add(Option("rest", "cushion", "走到软垫上休息", First(busy,
                 state.cushionAvailable ? "" : "当前场景没有可用的软垫休息点。"), "rest", "cushion", "care"));
             result.Add(Option("pet", "none", "探头并摇尾，回应亲近", First(busy,
-                state.ownerAvailable ? "" : "当前找不到主人的位置。"), "attention", "affection", "head"));
+                state.ownerAvailable ? "" : state.ownerUnavailableReason ?? "当前找不到主人的位置。"), "attention", "affection", "head"));
             result.Add(Option("refuse", "none", "疑惑地歪头看看主人", busy, "expression", "confused", "calm"));
 
             foreach (DogMicroAction action in DogCompanion.MicroActions)

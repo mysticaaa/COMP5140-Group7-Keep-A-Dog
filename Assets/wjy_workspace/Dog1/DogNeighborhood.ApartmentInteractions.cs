@@ -9,6 +9,7 @@ namespace Wjy.DogTraining
         private const float DoorThickness = .065f;
         private readonly List<ApartmentDoor> apartmentDoors = new List<ApartmentDoor>(2);
         private ParticleSystem showerStreams, showerSplashes;
+        private bool showerRunning;
         private Vector3 showerControl;
         private string interactionHint;
 
@@ -55,8 +56,8 @@ namespace Wjy.DogTraining
             if (!allowInput) return null;
             Physics.SyncTransforms();
 
-            float foodAim = BowlAim(camera, FoodPosition);
-            float waterAim = BowlAim(camera, WaterPosition);
+            float foodAim = BowlAim(camera, FoodBowl);
+            float waterAim = BowlAim(camera, WaterBowl);
             if (Mathf.Max(foodAim, waterAim) > 0f)
             {
                 DogCareAction action = foodAim >= waterAim ? DogCareAction.Feed : DogCareAction.Water;
@@ -82,10 +83,11 @@ namespace Wjy.DogTraining
             {
                 if (pressed)
                 {
-                    if (showerStreams.isEmitting)
+                    showerRunning = !showerRunning;
+                    if (!showerRunning)
                     {
-                        showerStreams.Stop(false, ParticleSystemStopBehavior.StopEmitting);
-                        showerSplashes.Stop(false, ParticleSystemStopBehavior.StopEmitting);
+                        showerStreams.Stop(false, ParticleSystemStopBehavior.StopEmittingAndClear);
+                        showerSplashes.Stop(false, ParticleSystemStopBehavior.StopEmittingAndClear);
                     }
                     else
                     {
@@ -93,7 +95,7 @@ namespace Wjy.DogTraining
                         showerSplashes.Play();
                     }
                 }
-                interactionHint = showerStreams.isEmitting ? "E  关闭花洒" : "E  打开花洒";
+                interactionHint = showerRunning ? "E  关闭花洒" : "E  打开花洒";
             }
             else if (selected != null)
             {
@@ -103,11 +105,12 @@ namespace Wjy.DogTraining
             return null;
         }
 
-        private static float BowlAim(Transform camera, Vector3 center)
+        private static float BowlAim(Transform camera, DogToyBody bowl)
         {
-            Vector3 surface = center + Vector3.up * .16f;
+            if (bowl == null || !bowl.IsSettled) return 0f;
+            Vector3 surface = bowl.transform.position + Vector3.up * .16f;
             float aim = Vector3.Dot(camera.forward, (surface - camera.position).normalized);
-            return aim > .95f && CanReach(camera, surface, 2.25f, null, out _) ? aim : 0f;
+            return aim > .95f && CanReach(camera, surface, 2.25f, bowl.transform, out _) ? aim : 0f;
         }
 
         private static bool CanReach(Transform camera, Vector3 target, float reach, Transform owner, out float distance)
@@ -121,6 +124,7 @@ namespace Wjy.DogTraining
 
         private void BuildShowerWater(Vector3 nozzle, Vector3 tray, Vector3 control)
         {
+            showerRunning = false;
             showerControl = control;
             const string key = "Shower droplets";
             var water = new Material(Shader.Find("Sprites/Default")) { name = key };

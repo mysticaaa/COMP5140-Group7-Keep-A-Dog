@@ -55,6 +55,8 @@ public static class Dog1HeadsetValidation
         Require(desktop!=rig.HeadCamera&&desktop.enabled&&!rig.HeadCamera.enabled,"desktop camera remains active without headset");
         Require(trainer.GetComponents<Dog2VrTraining>().Length==0,"one Dog1 simulation, no duplicate Dog2 trainer");
         Call(trainer,"BeginPlay");Set(trainer,"nextAutonomy",float.MaxValue);
+        // This is the positive UI/ray/speech integration path. Probability failure is tested with a fixed 100 elsewhere.
+        Set(trainer,"trainingDrawOverride",new Func<int>(()=>1));
         Require(trainer.dog.VisualRoot.name == "border-collie - rigged", "fresh Dog1 uses the existing Border Collie model");
         trainer.HeadsetCanvas.gameObject.SetActive(true);
         rig.HeadCamera.enabled=true; desktop.enabled=false;
@@ -78,11 +80,25 @@ public static class Dog1HeadsetValidation
         Click(trainer,ray,"训练");
         yield return null;
         Require((int)Get(trainer,"xrTab")==2,"controller ray navigates training tab");
+        Require(trainer.HeadsetCanvas.GetComponentsInChildren<Button>().Any(button=>
+            button.gameObject.name=="过来"||button.gameObject.name.StartsWith("过来\n",StringComparison.Ordinal)),
+            "headset training includes the come skill");
+        Require(trainer.HeadsetCanvas.GetComponentsInChildren<Text>().Any(label=>label.text.Contains("40%")),
+            "headset training displays the initial practice probability");
         Click(trainer,ray,"坐下");
         Require((bool)Get(trainer,"busy"),"controller ray starts actual Agent training");
         float deadline=Time.realtimeSinceStartup+20;
         while((bool)Get(trainer,"busy")&&Time.realtimeSinceStartup<deadline)yield return null;
         Require(!(bool)Get(trainer,"busy"),"Agent action completed");
+        Require(trainer.dog.LastCompletedAction=="sit"&&
+            (int)Get(trainer,"trainingProgress").GetType().GetMethod("GetSuccessRate").Invoke(
+                Get(trainer,"trainingProgress"),new object[]{"sit"})==50,
+            "positive ray practice really completed sit and increased its displayed probability");
+        Call(trainer,"RefreshHeadsetText");yield return null;
+        Click(trainer,ray,"真棒 · 奖励");yield return null;
+        Require((int)Get(trainer,"trainingProgress").GetType().GetMethod("GetSuccessRate").Invoke(
+            Get(trainer,"trainingProgress"),new object[]{"sit"})==60,
+            "ray praise confirms the completed skill before a later ordinary voice command");
         Click(trainer,ray,"照料");yield return null;
         Require(trainer.HeadsetCanvas.GetComponentsInChildren<Button>().Length>=15,"care controls rendered in world space");
         Click(trainer,ray,"出门");yield return null;
@@ -187,13 +203,20 @@ public static class Dog1HeadsetValidation
     {
         Canvas.ForceUpdateCanvases();Button button=null;
         foreach(var candidate in trainer.HeadsetCanvas.GetComponentsInChildren<Button>())
-            if(candidate.gameObject.name==label){button=candidate;break;}
+            if(candidate.gameObject.name==label||candidate.gameObject.name.StartsWith(label+"\n",StringComparison.Ordinal))
+                {button=candidate;break;}
         if(button==null)throw new Exception("Missing button: "+label);
         var rect=button.GetComponent<RectTransform>();Vector3 center=rect.TransformPoint(rect.rect.center);
         Vector3 head=trainer.HeadsetRig.HeadCamera.transform.position;var aim=new Ray(head,(center-head).normalized);
         int before=ray.ClickCount;ray.ProcessRay(aim,false,true);ray.ProcessRay(aim,true,true);ray.ProcessRay(aim,false,true);
         if(ray.ClickCount==before)
         {
+            Debug.Log("XR_RAY_STATE interactable="+button.interactable+" ready="+
+                trainer.GetType().GetProperty("Ready",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(trainer)+
+                " activeTrace="+(Get(trainer,"activeCommandTrace")!=null)+
+                " canReward="+Get(trainer,"agent").GetType().GetProperty("CanReward").GetValue(Get(trainer,"agent"))+
+                " trainingReward="+Call(trainer,"CanRewardTraining",Time.realtimeSinceStartup)+
+                " propBlocked="+Call(trainer,"PropBlocksUi",true));
             var camera=trainer.HeadsetRig.HeadCamera;
             var pointer=new UnityEngine.EventSystems.PointerEventData(UnityEngine.EventSystems.EventSystem.current);
             pointer.position=RectTransformUtility.WorldToScreenPoint(camera,center);

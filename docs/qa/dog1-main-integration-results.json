@@ -1,0 +1,63 @@
+[
+  {
+    "Method": "DogTrainingProtocolValidation.Run",
+    "Result": "PASS",
+    "Assertions": 160,
+    "Log": "integration-20261126-170309-998/DogTrainingProtocolValidation.Run.log:385"
+  },
+  {
+    "Method": "Dog1IntegrationValidation.Run",
+    "Result": "PASS",
+    "Assertions": 71,
+    "Log": "integration-20261126-170631-125/Dog1IntegrationValidation.Run.log:582",
+    "Scope": "Controller, legacy multi-actions/conditional teaching, training result/praise/reload, stale-trial isolation, held/moved bowls and cancellation during hold"
+  },
+  {
+    "Method": "Dog1IntegrationValidation.RunTrainingGuards",
+    "Result": "PASS",
+    "Assertions": 9,
+    "Log": "integration-20261126-170804-790/Dog1IntegrationValidation.RunTrainingGuards.log:482"
+  },
+  {
+    "Method": "Dog1PhysicalPropsValidation.Run",
+    "Result": "PASS",
+    "Log": "integration-20261126-170834-288/Dog1PhysicalPropsValidation.Run.log:1111"
+  },
+  {
+    "Method": "Dog1CommandQueueValidation.Run",
+    "Result": "PASS",
+    "Log": "integration-20261126-170908-695/Dog1CommandQueueValidation.Run.log:457"
+  },
+  {
+    "Method": "Dog1ControllerValidation.Run",
+    "Result": "PASS",
+    "Log": "integration-20261126-170932-549/Dog1ControllerValidation.Run.log:634"
+  },
+  {
+    "Method": "Dog1ExperienceValidation.RunRestFlows",
+    "Result": "PASS",
+    "Assertions": 8,
+    "Log": "integration-20261126-171019-532/Dog1ExperienceValidation.RunRestFlows.log:480"
+  },
+  {
+    "Method": "DogLearningConditionValidation.Run",
+    "Result": "PASS",
+    "Assertions": 59,
+    "Log": "integration-20261126-171111-380/DogLearningConditionValidation.Run.log:330"
+  },
+  {
+    "Method": "Dog1HeadsetValidation.Run",
+    "Result": "PASS",
+    "Log": "integration-20261126-171707-271/Dog1HeadsetValidation.Run.log:1006",
+    "Screenshot": "integration-20261126-171707-271/captures/dog1-headset-menu.png",
+    "InitialResult": "FAIL",
+    "InitialFailureNotes": "Updated test name matching for newline probability captions; confirmed practiced skill by real ray praise; waited for real UI binding refresh. Original positive WAV/model/actual motion assertions preserved.",
+    "Scope": "Graphics simulation; fixed WAV via local ASR and loopback model; no physical headset claim"
+  },
+  {
+    "Method": "Dog1IntegrationValidation.RunDelayedPraise",
+    "Result": "PASS",
+    "Assertions": 7,
+    "Log": "integration-20261126-171753-168/Dog1IntegrationValidation.RunDelayedPraise.log:479"
+  }
+]

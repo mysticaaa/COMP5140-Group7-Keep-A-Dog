@@ -75,6 +75,7 @@ namespace Wjy.DogTraining
 
         private IEnumerator RunDeveloperPreview(int start, bool sequence)
         {
+            InvalidateTrainingFeedback();
             DogCompanion companion = dog;
             bool wander = companion.WanderingEnabled;
             bool heldIdleGestures = companion.HoldIdleGestures;

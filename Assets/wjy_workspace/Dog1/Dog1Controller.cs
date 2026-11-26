@@ -72,6 +72,8 @@ namespace Wjy.DogTraining
         {
             if (!string.IsNullOrEmpty(decision.ModelReply)) reply = decision.ModelReply;
             var routine = new string[decision.Actions.Length];
+            bool practice = IsTrainingPractice(decision);
+            if (practice) pendingTrainingSkill = null;
 
             for (int index = 0; index < decision.Actions.Length; index++)
             {
@@ -91,15 +93,27 @@ namespace Wjy.DogTraining
                     activeCommandTrace?.Actions.Add(action.id + " · 场景校验阻塞 · " + reason);
                     reply = reason;
                     agent.ReportExecution(decision, false);
+                    if (practice) yield return TrainingAlternative(decision, reason);
                     yield break;
                 }
                 DogCommandOption option = DogCommandCatalog.Find(current.actionCatalog, action.id, action.target);
                 nextQueuedAction = index + 1;
 
+                if (practice && !DrawTraining(action.id))
+                {
+                    yield return TrainingAlternative(decision, "");
+                    yield break;
+                }
+
                 activeCommandTrace?.Actions.Add(action.id + " · 开始 · 目标 " + action.target);
                 Debug.Log("[Dog1 Agent] 模型返回动作：" + action.id);
                 bool succeeded;
-                if (DogCommandCatalog.IsMicroAction(action.id))
+                if (action.id == "eat" || action.id == "drink")
+                {
+                    yield return ConsumeFromBowl(action.id == "eat" ? DogCareAction.Feed : DogCareAction.Water);
+                    succeeded = lastBowlCareSucceeded;
+                }
+                else if (DogCommandCatalog.IsMicroAction(action.id))
                 {
                     succeeded = dog.TryPlayMicroAction(action.id);
                     if (succeeded)
@@ -123,6 +137,7 @@ namespace Wjy.DogTraining
                 {
                     reply = "麦粒没能完成「" + option.label + "」，先停一会儿。";
                     agent.ReportExecution(decision, false);
+                    if (practice) yield return TrainingAlternative(decision, "");
                     yield break;
                 }
 
@@ -131,6 +146,7 @@ namespace Wjy.DogTraining
                     RecordRestCompletion();
                 if (action.id == "fetch_toy") FinishCare(DogCareAction.Play, true);
                 if (action.id == "bow" || action.id == "invite") OpenPlayInvitation(preserveReply: true);
+                if (practice) CompleteTraining(action.id, decision);
             }
 
             agent.ReportExecution(decision, true);
@@ -140,7 +156,8 @@ namespace Wjy.DogTraining
                 pendingName = DogRoutines.CueName(activeCommandTrace?.Input);
                 pendingRoutine = routine;
             }
-            if (!string.IsNullOrEmpty(decision.ModelReply)) reply = decision.ModelReply;
+            if (practice) reply = TrainingResultText;
+            else if (!string.IsNullOrEmpty(decision.ModelReply)) reply = decision.ModelReply;
         }
     }
 }

@@ -1,0 +1,703 @@
+{
+  "scope": "Unity isolated scenes, simulated controller rays and fixed Chinese WAV; no physical headset hardware claim",
+  "passed": 23,
+  "failed": 0,
+  "results": [
+    {
+      "Method": "DogTrainingProtocolValidation.Run",
+      "Result": "PASS",
+      "Seconds": 67.04,
+      "Graphics": false,
+      "Log": "integration-20261126-213727-216/DogTrainingProtocolValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 323,
+          "text": "DOG_TRAINING_PROTOCOL_OK assertions=160"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1IntegrationValidation.Run",
+      "Result": "PASS",
+      "Graphics": false,
+      "FinalRecheck": "81 assertions after cross-activity feedback invalidation",
+      "Log": "integration-20261126-220808-091/Dog1IntegrationValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 495,
+          "text": "DOG_INTEGRATION_CONTROLLER_OK: no-training legacy plan, ordered sequence and invalid plan coexist"
+        },
+        {
+          "line": 536,
+          "text": "DOG_INTEGRATION_TRAINING_OK: deterministic failure/success, genuine single praise, expiry, offline practice and reload"
+        },
+        {
+          "line": 547,
+          "text": "DOG_INTEGRATION_PRACTICE_GUARDS_OK: explicit requested skill and training metadata must agree"
+        },
+        {
+          "line": 568,
+          "text": "DOG_INTEGRATION_DELAYED_PRAISE_OK: speech start time controls the twelve-second window"
+        },
+        {
+          "line": 599,
+          "text": "DOG_INTEGRATION_BOWLS_OK: held and interrupted meals rejected; actual moved food/water commands restore needs exactly once"
+        },
+        {
+          "line": 610,
+          "text": "DOG_INTEGRATION_OK assertions=81"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1IntegrationValidation.RunTrainingGuards",
+      "Result": "PASS",
+      "Seconds": 22.11,
+      "Graphics": false,
+      "Log": "integration-20261126-213921-453/Dog1IntegrationValidation.RunTrainingGuards.log",
+      "Evidence": [
+        {
+          "line": 468,
+          "text": "DOG_INTEGRATION_PRACTICE_GUARDS_OK: explicit requested skill and training metadata must agree"
+        },
+        {
+          "line": 479,
+          "text": "DOG_INTEGRATION_OK assertions=9"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1IntegrationValidation.RunDelayedPraise",
+      "Result": "PASS",
+      "Seconds": 17.2,
+      "Graphics": false,
+      "Log": "integration-20261126-213943-205/Dog1IntegrationValidation.RunDelayedPraise.log",
+      "Evidence": [
+        {
+          "line": 473,
+          "text": "DOG_INTEGRATION_DELAYED_PRAISE_OK: speech start time controls the twelve-second window"
+        },
+        {
+          "line": 484,
+          "text": "DOG_INTEGRATION_OK assertions=7"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1PhysicalPropsValidation.Run",
+      "Result": "PASS",
+      "Seconds": 15.63,
+      "Graphics": false,
+      "Log": "integration-20261126-214000-525/Dog1PhysicalPropsValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 1018,
+          "text": "DOG1_PROPS_CHECK: exactly three explicit grip targets in the neighborhood"
+        },
+        {
+          "line": 1031,
+          "text": "DOG1_PROPS_CHECK: toy has an active collider and rigid body"
+        },
+        {
+          "line": 1044,
+          "text": "DOG1_PROPS_CHECK: toy roster includes 玩具球"
+        },
+        {
+          "line": 1057,
+          "text": "DOG1_PROPS_CHECK: toy has an active collider and rigid body"
+        },
+        {
+          "line": 1070,
+          "text": "DOG1_PROPS_CHECK: toy roster includes 棒棒糖毛绒玩具"
+        },
+        {
+          "line": 1083,
+          "text": "DOG1_PROPS_CHECK: toy has an active collider and rigid body"
+        },
+        {
+          "line": 1096,
+          "text": "DOG1_PROPS_CHECK: toy roster includes 云朵布偶"
+        },
+        {
+          "line": 1109,
+          "text": "DOG1_PROPS_OK"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1CommandQueueValidation.Run",
+      "Result": "PASS",
+      "Seconds": 16.01,
+      "Graphics": false,
+      "Log": "integration-20261126-214016-303/Dog1CommandQueueValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 462,
+          "text": "DOG_COMMAND_QUEUE_OK: shared three slots, original five-second deadline across model, LIFO, active action preserved, expiry and cancellation"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1ControllerValidation.Run",
+      "Result": "PASS",
+      "Seconds": 30.16,
+      "Graphics": false,
+      "Log": "integration-20261126-214032-194/Dog1ControllerValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 624,
+          "text": "DOG_CONTROLLER_OK"
+        }
+      ]
+    },
+    {
+      "Method": "DogLearningConditionValidation.Run",
+      "Result": "PASS",
+      "Seconds": 12.87,
+      "Graphics": false,
+      "Log": "integration-20261126-214102-387/DogLearningConditionValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 323,
+          "text": "DOG_LEARNING_CONDITION_OK assertions=59"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1AuthValidation.Run",
+      "Result": "PASS",
+      "Seconds": 29.07,
+      "Graphics": false,
+      "Log": "integration-20261126-214144-525/Dog1AuthValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 716,
+          "text": "DOG_AUTH_OK assertions=17"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1ExperienceValidation.Run",
+      "Result": "PASS",
+      "Seconds": 129.88,
+      "Graphics": false,
+      "Log": "integration-20261126-214213-785/Dog1ExperienceValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 620,
+          "text": "DOG_EXPERIENCE_OK assertions=54"
+        }
+      ]
+    },
+    {
+      "Method": "Dog1ExperienceValidation.RunRestFlows",
+      "Result": "PASS",
+      "Seconds": 57.24,
+      "Graphics": false,
+      "Log": "integration-20261126-214423-618/Dog1ExperienceValidation.RunRestFlows.log",
+      "Evidence": [
+        {
+          "line": 507,
+          "text": "DOG_EXPERIENCE_REST_OK: quiet invitation rests once without duplicate story accounting"
+        },
+        {
+          "line": 518,
+          "text": "DOG_EXPERIENCE_OK assertions=8"
+        }
+      ]
+    },
+    {
+      "Method": "DogLifeValidation.Run",
+      "Result": "PASS",
+      "Seconds": 62.04,
+      "Graphics": false,
+      "Log": "integration-20261126-215006-415/DogLifeValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 462,
+          "text": "CITY_DOG_OK: daily gift, care, park, walk, sequence, terrace, keypoints and fifth-chapter completion persisted."
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-214740-273",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "Dog1ConversationValidation.Run",
+      "Result": "PASS",
+      "Seconds": 88.67,
+      "Graphics": false,
+      "Log": "integration-20261126-215109-036/Dog1ConversationValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 678,
+          "text": "DOG_CONVERSATION_OK"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-214746-432",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "DogActionCompletionValidation.Run",
+      "Result": "PASS",
+      "Seconds": 19.51,
+      "Graphics": false,
+      "Log": "integration-20261126-215238-212/DogActionCompletionValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 456,
+          "text": "DOG_ACTION_COMPLETION_OK assertions=74"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-214752-089",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "ControllerParserValidation.Run",
+      "Result": "PASS",
+      "Seconds": 14.74,
+      "Graphics": false,
+      "Log": "integration-20261126-215257-427/ControllerParserValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 383,
+          "text": "DOG_CONTROLLER_PARSER_OK assertions=34"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-214757-392",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "DogPlayAgentValidation.Run",
+      "Result": "PASS",
+      "Seconds": 15.27,
+      "Graphics": false,
+      "Log": "integration-20261126-215312-064/DogPlayAgentValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 440,
+          "text": "DOG_PLAY_AGENT_OK: pounce, sniff, reward, save migration, old aliases, routines, negative cues, ordered and restricted model actions, response status, and neighborhood clearance."
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-214802-584",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "DogHouseRestValidation.Run",
+      "Result": "PASS",
+      "Seconds": 18.18,
+      "Graphics": true,
+      "Log": "integration-20261126-215434-657/DogHouseRestValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 449,
+          "text": "DOG_HOUSE_REST_CHECK: Dog1 apartment exists"
+        },
+        {
+          "line": 464,
+          "text": "DOG_HOUSE_REST_CHECK: Serialized doghouse exists"
+        },
+        {
+          "line": 490,
+          "text": "DOG_HOUSE_REST_CHECK: Rest held rather than immediately restarting the gait"
+        },
+        {
+          "line": 502,
+          "text": "DOG_HOUSE_REST_CHECK: Chest settles into the resting pose after the inside turn"
+        },
+        {
+          "line": 514,
+          "text": "DOG_HOUSE_REST_CHECK: Entry, inside turn, rest and exit all observed"
+        },
+        {
+          "line": 526,
+          "text": "DOG_HOUSE_REST_CHECK: No reverse translation during the action"
+        },
+        {
+          "line": 538,
+          "text": "DOG_HOUSE_REST_CHECK: Rest completes and reports success"
+        },
+        {
+          "line": 561,
+          "text": "DOG_HOUSE_REST_OK"
+        }
+      ]
+    },
+    {
+      "Method": "DogDefaultBreedValidation.Run",
+      "Result": "PASS",
+      "Seconds": 18.0,
+      "Graphics": true,
+      "Log": "integration-20261126-215453-061/DogDefaultBreedValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 809,
+          "text": "DOG_DEFAULT_BREED_OK: original Border Collie, grounded invitation, unbroken target attention, curved walking and fetch"
+        }
+      ],
+      "Images": [
+        "integration-20261126-215453-061/captures/border-collie-head-tilt.png",
+        "integration-20261126-215453-061/captures/border-collie-invite.png",
+        "integration-20261126-215453-061/captures/border-collie-owner-arrival.png",
+        "integration-20261126-215453-061/captures/border-collie-standing.png"
+      ]
+    },
+    {
+      "Method": "DogMotionRecoveryValidation.Run",
+      "Result": "PASS",
+      "Seconds": 20.77,
+      "Graphics": true,
+      "Log": "integration-20261126-215510-987/DogMotionRecoveryValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 1416,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: boxer"
+        },
+        {
+          "line": 1428,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: dalmatian"
+        },
+        {
+          "line": 1440,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: golden-retriever"
+        },
+        {
+          "line": 1452,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: great-dane"
+        },
+        {
+          "line": 1464,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: husky"
+        },
+        {
+          "line": 1476,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: labrador-retriever"
+        },
+        {
+          "line": 1488,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: pitbull"
+        },
+        {
+          "line": 1500,
+          "text": "DOG_RECOVERY_CHECK: breed initialized: rottweiler"
+        }
+      ],
+      "Images": [
+        "integration-20261126-215510-987/captures/attentive-skeleton.png",
+        "integration-20261126-215510-987/captures/attentive-tilt.png",
+        "integration-20261126-215510-987/captures/autonomous-arrival.png",
+        "integration-20261126-215510-987/captures/autonomous-micro.png",
+        "integration-20261126-215510-987/captures/bow.png",
+        "integration-20261126-215510-987/captures/burst.png",
+        "integration-20261126-215510-987/captures/come.png",
+        "integration-20261126-215510-987/captures/crouch.png",
+        "integration-20261126-215510-987/captures/fetch_lollipop.png",
+        "integration-20261126-215510-987/captures/fetch_toy.png",
+        "integration-20261126-215510-987/captures/invite.png",
+        "integration-20261126-215510-987/captures/micro-air_sniff.png",
+        "integration-20261126-215510-987/captures/micro-body_shake.png",
+        "integration-20261126-215510-987/captures/micro-check_behind.png",
+        "integration-20261126-215510-987/captures/micro-chest_lean.png",
+        "integration-20261126-215510-987/captures/micro-ear_flick.png",
+        "integration-20261126-215510-987/captures/micro-ear_perk.png",
+        "integration-20261126-215510-987/captures/micro-gaze_exchange.png",
+        "integration-20261126-215510-987/captures/micro-groom_paw.png",
+        "integration-20261126-215510-987/captures/micro-head_tilt.png",
+        "integration-20261126-215510-987/captures/micro-head_turn.png",
+        "integration-20261126-215510-987/captures/micro-nose_to_floor.png",
+        "integration-20261126-215510-987/captures/micro-soft_shake.png",
+        "integration-20261126-215510-987/captures/paw.png",
+        "integration-20261126-215510-987/captures/pet.png",
+        "integration-20261126-215510-987/captures/pounce.png",
+        "integration-20261126-215510-987/captures/refuse.png",
+        "integration-20261126-215510-987/captures/rest.png",
+        "integration-20261126-215510-987/captures/sit.png",
+        "integration-20261126-215510-987/captures/sniff.png",
+        "integration-20261126-215510-987/captures/spin.png"
+      ]
+    },
+    {
+      "Method": "Dog1HeadsetValidation.Run",
+      "Result": "PASS",
+      "Seconds": 39.54,
+      "Graphics": true,
+      "Log": "integration-20261126-220028-631/Dog1HeadsetValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 957,
+          "text": "DOG1_XR_CHECK: local speech service prewarmed and verified"
+        },
+        {
+          "line": 969,
+          "text": "DOG1_XR_CHECK: real Chinese WAV transcribes through Unity HTTP client"
+        },
+        {
+          "line": 981,
+          "text": "DOG1_XR_CHECK: speech transcript reaches same Dog1 Agent"
+        },
+        {
+          "line": 1003,
+          "text": "DOG1_XR_CHECK: fixed WAV reached a successful canonical model sit without request error"
+        },
+        {
+          "line": 1015,
+          "text": "DOG1_XR_CHECK: ray click: 故事"
+        },
+        {
+          "line": 1028,
+          "text": "DOG1_XR_CHECK: desktop controls retained"
+        },
+        {
+          "line": 1040,
+          "text": "DOG1_XR_CHECK: explicit scene-response control accepted"
+        },
+        {
+          "line": 1052,
+          "text": "DOG1_XR_CHECK: local scene choice reached actual motion playback"
+        }
+      ],
+      "Images": [
+        "integration-20261126-220028-631/captures/dog1-headset-menu.png"
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-215642-739",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "Dog1V5JourneyValidation.RunFacilities",
+      "Result": "PASS",
+      "Seconds": 27.77,
+      "Graphics": true,
+      "Log": "integration-20261126-221024-730/Dog1V5JourneyValidation.RunFacilities.log",
+      "Evidence": [
+        {
+          "line": 461,
+          "text": "DOG_V5_FACILITY_DOOR_OK 卧室门"
+        },
+        {
+          "line": 472,
+          "text": "DOG_V5_FACILITY_DOOR_OK 卫浴门"
+        },
+        {
+          "line": 483,
+          "text": "DOG_V5_FACILITY_DOOR_OK 花园门"
+        },
+        {
+          "line": 527,
+          "text": "DOG_V5_FACILITY_SHOWER_OK"
+        },
+        {
+          "line": 538,
+          "text": "DOG_V5_FACILITIES_OK assertions=37 scope=scene-physics-gaze-and-grip-simulation"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-220431-636",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "Dog1V5JourneyValidation.RunInputProbe",
+      "Result": "PASS",
+      "Seconds": 37.39,
+      "Graphics": true,
+      "Log": "integration-20261126-221547-106/Dog1V5JourneyValidation.RunInputProbe.log",
+      "Evidence": [
+        {
+          "line": 478,
+          "text": "DOG_V5_INPUT_PROBE_OK assertions=4"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-221442-056",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    },
+    {
+      "Method": "Dog1V5JourneyValidation.Run",
+      "Result": "PASS",
+      "Seconds": 77.32,
+      "Graphics": true,
+      "Log": "integration-20261126-222047-069/Dog1V5JourneyValidation.Run.log",
+      "Evidence": [
+        {
+          "line": 489,
+          "text": "DOG_V5_JOURNEY_LOCOMOTION_OK"
+        },
+        {
+          "line": 511,
+          "text": "DOG_V5_JOURNEY_PET_GRAB_TRACKING_OK"
+        },
+        {
+          "line": 522,
+          "text": "DOG_V5_JOURNEY_MENU_PAUSE_WALK_OK"
+        },
+        {
+          "line": 533,
+          "text": "DOG_V5_JOURNEY_BOWL_FIXTURES_OK"
+        },
+        {
+          "line": 544,
+          "text": "DOG_V5_JOURNEY_FLOOR_AND_SCENE_OK"
+        },
+        {
+          "line": 565,
+          "text": "DOG_V5_JOURNEY_FEEDBACK_BOUNDARY_OK"
+        },
+        {
+          "line": 576,
+          "text": "DOG_V5_JOURNEY_OK assertions=87 scope=scene,input-action,ray,coroutine-simulation"
+        }
+      ],
+      "Retest": {
+        "PreviousResult": "FAIL",
+        "PreviousRun": "integration-20261126-221907-256",
+        "Note": "Initial failure retained; final result is from the separately executed retest. See audit for fixture/product classification."
+      }
+    }
+  ],
+  "retestNotes": [
+    "Five suites initially encountered a Journey Editor test compilation error. The test was fixed, then all affected entries were rerun.",
+    "Hidden batch Editor input buffers do not drive player actions. The isolated Journey fixture now routes virtual-device events through the player input buffer and restores focus settings afterward.",
+    "A high-FPS batch hand path needed a minimum simulation time step matching the production speed gate; no production petting threshold was lowered.",
+    "Shower toggle failure led to an explicit production on/off state and both-particle-system cleanup, followed by a separate facilities retest."
+  ],
+  "date": "2026-11-26",
+  "version": "5.0",
+  "liveProtocol": {
+    "result": "PASS",
+    "passed": 6,
+    "failed": 0,
+    "scope": "Real DeepSeek responses and protocol parsing only; synthetic state is not scene motion",
+    "cases": [
+      {
+        "test": "explicit-sit-practice",
+        "decision": "act",
+        "mode": "practice",
+        "ids": [
+          "sit/none"
+        ],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": false,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "ordinary-single-skill-practice",
+        "decision": "act",
+        "mode": "practice",
+        "ids": [
+          "sit/none"
+        ],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": false,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "sincere-praise",
+        "decision": "reply",
+        "mode": "praise",
+        "ids": [],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": true,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "quoted-praise-is-not-reward",
+        "decision": "reply",
+        "mode": "none",
+        "ids": [],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": false,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "rest-house-stays-care",
+        "decision": "act",
+        "mode": "none",
+        "ids": [
+          "rest/house"
+        ],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": false,
+        "passed": true,
+        "error": ""
+      },
+      {
+        "test": "held-bowl-is-unavailable",
+        "decision": "decline",
+        "mode": "none",
+        "ids": [],
+        "usedModel": true,
+        "parsed": true,
+        "providerError": false,
+        "sincere": false,
+        "passed": true,
+        "error": ""
+      }
+    ]
+  },
+  "windows": {
+    "result": "PASS",
+    "bundleVersion": "5.0",
+    "playerIdentityChanged": false,
+    "executable": "Builds/CityDog1PCVR/CityDog1PCVR.exe",
+    "bytes": 666624,
+    "sha256": "F5F73D8616A2500E0FB0223D83774E2D7F6A74C1BBDAD772F4FEFC9BF5812036",
+    "startupSmokes": [
+      {
+        "Result": "PASS",
+        "Scope": "Windows player startup only; headless 15-second smoke, not physical headset or full player gameplay",
+        "Executable": "Builds/CityDog1PCVR/CityDog1PCVR.exe",
+        "SHA256": "F5F73D8616A2500E0FB0223D83774E2D7F6A74C1BBDAD772F4FEFC9BF5812036",
+        "Log": "v5-player-startup.log"
+      },
+      {
+        "Result": "PASS",
+        "Scope": "Windows graphics player initialization only; hidden 15-second startup, not physical headset or full player gameplay",
+        "Executable": "Builds/CityDog1PCVR/CityDog1PCVR.exe",
+        "SHA256": "F5F73D8616A2500E0FB0223D83774E2D7F6A74C1BBDAD772F4FEFC9BF5812036",
+        "Log": "v5-player-graphics-startup.log"
+      }
+    ],
+    "note": "Headless startup has expected null-graphics shader messages. Separate graphics startup passed; neither smoke is a physical-headset or complete player-gameplay test."
+  },
+  "notImplemented": [
+    "Automatic fetch triggered solely by throwing",
+    "Dog elevator navigation between floors",
+    "Bowl-position persistence across scene/save",
+    "Quest standalone APK"
+  ],
+  "hardwareTested": false
+}
