@@ -9,6 +9,7 @@ namespace Wjy.DogTraining
     {
         public string id;
         public string[] tags;
+        public Vector3 position;
         public float distanceMeters;
         public float bearingDegrees;
         public bool inViewCone;
@@ -16,6 +17,7 @@ namespace Wjy.DogTraining
         public bool visible;
         public bool nearHead;
         public bool heldByPlayer;
+        public bool settled;
     }
 
     [Serializable]
@@ -69,13 +71,15 @@ namespace Wjy.DogTraining
         public LayerMask OccluderLayers = Physics.DefaultRaycastLayers;
 
         private readonly RaycastHit[] rayHits = new RaycastHit[32];
-        private Transform boundDog, toyBall, candy;
+        private Transform boundDog, toyBall, candy, foodBowl, waterBowl;
         private bool targetsAssigned;
 
-        public void SetTargets(Transform ball, Transform lollipop)
+        public void SetTargets(Transform ball, Transform lollipop, Transform food = null, Transform water = null)
         {
             toyBall = ball;
             candy = lollipop;
+            foodBowl = food;
+            waterBowl = water;
             targetsAssigned = true;
         }
 
@@ -99,13 +103,17 @@ namespace Wjy.DogTraining
             if (!result.available) return result;
 
             Vector3 origin = Dog.PerceptionHead != null ? Dog.PerceptionHead.position + Vector3.up * .025f : Dog.transform.position + Vector3.up * .45f;
-            var observed = new List<DogObservedObject>(5);
+            var observed = new List<DogObservedObject>(7);
             if (Dog.user != null && Dog.user.gameObject.activeInHierarchy)
                 observed.Add(Observe("owner", new[] { "person", "social" }, Dog.user.position, origin, Dog.user));
             if (toyBall != null && toyBall.gameObject.activeInHierarchy)
                 observed.Add(Observe("ball", new[] { "toy", "fetchable" }, toyBall.position, origin, toyBall));
             if (candy != null && candy.gameObject.activeInHierarchy)
                 observed.Add(Observe("lollipop", new[] { "toy", "plush", "fetchable" }, candy.position, origin, candy));
+            if (foodBowl != null && foodBowl.gameObject.activeInHierarchy)
+                observed.Add(Observe("food_bowl", new[] { "bowl", "food" }, foodBowl.position, origin, foodBowl));
+            if (waterBowl != null && waterBowl.gameObject.activeInHierarchy)
+                observed.Add(Observe("water_bowl", new[] { "bowl", "water" }, waterBowl.position, origin, waterBowl));
             AddHand(observed, "left_hand", leftHand, origin);
             AddHand(observed, "right_hand", rightHand, origin);
             result.objects = observed.ToArray();
@@ -139,11 +147,13 @@ namespace Wjy.DogTraining
             bool inRange = distance <= Mathf.Clamp(Range, 1f, 10f);
             bool inCone = inRange && Mathf.Abs(bearing) <= Mathf.Clamp(HalfViewAngle, 20f, 90f);
             bool clear = inRange && ClearRay(origin, point, target);
-            var holder = target != null ? target.GetComponent<DogToyBody>()?.Holder : null;
+            DogToyBody body = target != null ? target.GetComponent<DogToyBody>() : null;
+            var holder = body?.Holder;
             return new DogObservedObject
             {
-                id = id, tags = tags, distanceMeters = Round(distance), bearingDegrees = Round(bearing),
+                id = id, tags = tags, position = point, distanceMeters = Round(distance), bearingDegrees = Round(bearing),
                 inViewCone = inCone, lineOfSight = clear, visible = inCone && clear,
+                settled = body == null || body.IsSettled,
                 heldByPlayer = holder == DogToyHolder.RightHand || holder == DogToyHolder.LeftHand || holder == DogToyHolder.Desktop
             };
         }

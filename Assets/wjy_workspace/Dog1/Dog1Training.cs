@@ -26,7 +26,7 @@ namespace Wjy.DogTraining
         private Transform waste, walkMarker;
         private Material markerMaterial;
         private string sessionKey;
-        private bool busy, useModel, confirmReset, walking;
+        private bool busy, confirmReset, walking;
         private bool quiet;
         private AudioSource feedbackAudio;
         private AudioClip rewardSound;
@@ -52,18 +52,20 @@ namespace Wjy.DogTraining
             agent = new DogAgent(SaveOverride(testSaves, "dog-memory.json"));
             routines = new DogRoutines(SaveOverride(testSaves, "dog-routine.json"));
             life = new DogLifeProgress(SaveOverride(testSaves, "dog-life.json"));
+            trainingProgress = new Dog1TrainingProgress(SaveOverride(testSaves, "dog-training-skills.json"));
             speech = gameObject.AddComponent<Dog2SpeechInput>();
             speech.TranscriptReady += SubmitVoiceTranscript;
             quiet = PlayerPrefs.GetInt("CityDogQuiet", 0) != 0;
             SetupAudio();
             perception = gameObject.AddComponent<DogScenePerception>();
             sessionKey = Environment.GetEnvironmentVariable("KEEP_A_DOG_API_KEY") ?? "";
+            projectDeepSeekKey = string.IsNullOrEmpty(testSaves) ? ReadLocalDeepSeekKey() : "";
             Transform oldSphere = transform.Find("Dog Placeholder Sphere");
             if (oldSphere != null) oldSphere.gameObject.SetActive(false);
             if (apartment != null) apartment.gameObject.SetActive(false);
             foreach (Light light in FindObjectsOfType<Light>()) light.enabled = false;
             world = new DogNeighborhood(transform, apartment);
-            world.Load((int)life.CurrentLocation);
+            LoadNeighborhood(life.CurrentLocation);
             viewCamera = Camera.main;
             if (viewCamera != null)
             {
@@ -167,8 +169,8 @@ namespace Wjy.DogTraining
             ConfigurePhysicalProps();
             var points = new System.Collections.Generic.List<DogCompanion.ExplorationPoint>
             {
-                new DogCompanion.ExplorationPoint("水碗", world.WaterPosition),
-                new DogCompanion.ExplorationPoint("食盆", world.FoodPosition)
+                new DogCompanion.ExplorationPoint("水碗", world.WaterPosition, world.WaterBowl.transform),
+                new DogCompanion.ExplorationPoint("食盆", world.FoodPosition, world.FoodBowl.transform)
             };
             foreach (var toy in physicalProps)
                 if (toy != null) points.Add(new DogCompanion.ExplorationPoint(toy.Label, toy.transform.position, toy.transform));
@@ -213,7 +215,11 @@ namespace Wjy.DogTraining
             {
                 pause = !pause;
                 Time.timeScale = pause ? 0f : 1f;
-                if (pause) life.Save();
+                if (pause)
+                {
+                    life.Save();
+                    trainingProgress.SavePendingChanges();
+                }
             }
             if (view != null) view.InputSuspended = !started || pause;
             if (!started || pause) return;
@@ -222,17 +228,25 @@ namespace Wjy.DogTraining
                 DogCareAction? refill = InHeadset ? UpdateHeadsetApartment() :
                     world.UpdateApartmentInteractions(viewCamera.transform, !IsTextEntryFocused,
                     Input.GetKeyDown(KeyCode.E), Time.deltaTime);
-                if (refill.HasValue) world.FillBowl(refill.Value);
+                if (refill.HasValue)
+                {
+                    world.FillBowl(refill.Value);
+                    offeredBowl = refill.Value;
+                }
             }
             if (view != null && world.IsElevatorMoving) view.InputSuspended = true;
             life.Tick(Time.deltaTime);
             if (Ready && !dog.IsFinishingIdleAction && !VoiceListening && !VoiceFinalizing && Time.time >= nextBowlCheck)
             {
                 nextBowlCheck = Time.time + 2f;
-                if (world.HasServing(DogCareAction.Feed) && string.IsNullOrEmpty(life.GetBlockReason(DogCareAction.Feed)))
-                    StartCare(DogCareAction.Feed);
-                else if (world.HasServing(DogCareAction.Water) && string.IsNullOrEmpty(life.GetBlockReason(DogCareAction.Water)))
-                    StartCare(DogCareAction.Water);
+                if (offeredBowl.HasValue && world.HasServing(offeredBowl.Value) &&
+                    string.IsNullOrEmpty(BowlAccessIssue(offeredBowl.Value)) &&
+                    string.IsNullOrEmpty(life.GetBlockReason(offeredBowl.Value)))
+                {
+                    DogCareAction offer = offeredBowl.Value;
+                    offeredBowl = null;
+                    StartCare(offer);
+                }
             }
             if (walking && viewCamera != null)
             {
@@ -261,6 +275,7 @@ namespace Wjy.DogTraining
 
         private bool nextRestInHouse = true;
         private float nextBowlCheck;
+        private DogCareAction? offeredBowl;
         private Transform HomeRestSpot(bool house) =>
             life.CurrentLocation == DogLocation.Apartment && apartment != null ? apartment.RestSpot(house) : null;
 
@@ -359,7 +374,8 @@ namespace Wjy.DogTraining
 
         private bool IsFacingNearbyToy()
         {
-            Vector3 towardToy = world.ToyPosition - dog.transform.position;
+            Vector3 towardToy = (physicalProps[0] != null ? physicalProps[0].transform.position : world.ToyPosition) -
+                dog.transform.position;
             towardToy.y = 0f;
             return towardToy.sqrMagnitude >= 0.38f * 0.38f && towardToy.sqrMagnitude <= 1.2f * 1.2f &&
                 Vector3.Dot(towardToy.normalized, dog.transform.forward) >= 0.80f;
@@ -369,10 +385,21 @@ namespace Wjy.DogTraining
         {
             if (location == life.CurrentLocation) return true;
             if (!life.Visit(location)) return false;
-            world.Load((int)location);
+            LoadNeighborhood(location);
             PlaceActors();
             Notify("已抵达" + DogLifeProgress.GetLocationName(location));
             return true;
+        }
+
+        private void LoadNeighborhood(DogLocation location)
+        {
+            DropGrip(leftToyGrip, false);
+            DropGrip(rightToyGrip, false);
+            DropGrip(desktopToyGrip, false);
+            world.Load((int)location);
+            offeredBowl = null;
+            world.FillBowl(DogCareAction.Feed);
+            world.FillBowl(DogCareAction.Water);
         }
 
         internal void Buy(DogLocation location)
@@ -431,9 +458,7 @@ namespace Wjy.DogTraining
                     bool food = action == DogCareAction.Feed;
                     world.FillBowl(action);
                     reply = food ? "你添了一份狗粮，麦粒小跑去饭碗。" : "你换了一碗干净的水，麦粒闻声跑来。";
-                    yield return dog.VisitStation(food ? world.FoodPosition : world.WaterPosition, food ? "去吃饭" : "去喝水", true);
-                    success = dog.LastActivitySucceeded;
-                    if (success) world.EmptyBowl(action);
+                    yield return ConsumeFromBowl(action, completed => success = completed);
                     break;
                 case DogCareAction.Clean:
                     reply = "用拾便袋清理地面，再把袋子放进垃圾桶。";
@@ -453,6 +478,40 @@ namespace Wjy.DogTraining
                     break;
             }
             FinishCare(action, success);
+        }
+
+        private string BowlAccessIssue(DogCareAction action)
+        {
+            DogToyBody bowl = world.CareBowl(action);
+            if (bowl == null || !bowl.gameObject.activeInHierarchy) return "麦粒找不到对应的碗。";
+            if (!bowl.IsSettled) return "先把" + bowl.Label + "放稳，麦粒才会过去。";
+            Vector3 position = bowl.transform.position;
+            if (Mathf.Abs(position.y - dog.transform.position.y) > .32f ||
+                Vector3.Distance(position, world.ConstrainDogPosition(position)) > .25f)
+                return bowl.Label + "放在了麦粒够不到的位置。";
+            return "";
+        }
+
+        private IEnumerator ConsumeFromBowl(DogCareAction action, Action<bool> completed)
+        {
+            if (!world.HasServing(action) || !string.IsNullOrEmpty(BowlAccessIssue(action)))
+            {
+                completed(false);
+                yield break;
+            }
+
+            DogToyBody bowl = world.CareBowl(action);
+            Vector3 station = bowl.transform.position;
+            yield return dog.VisitStation(station, action == DogCareAction.Feed ? "去吃饭" : "去喝水", true);
+            bool reached = dog.LastActivitySucceeded && bowl != null && bowl.IsSettled &&
+                Vector3.Distance(station, bowl.transform.position) < .12f &&
+                Vector3.ProjectOnPlane(station - dog.transform.position, Vector3.up).sqrMagnitude <= .49f;
+            if (reached)
+            {
+                if (offeredBowl == action) offeredBowl = null;
+                world.EmptyBowl(action);
+            }
+            completed(reached);
         }
 
         private void FinishCare(DogCareAction action, bool success)
@@ -513,6 +572,7 @@ namespace Wjy.DogTraining
         internal bool Submit(string input)
         {
             if (!Ready || VoiceListening || VoiceFinalizing || string.IsNullOrWhiteSpace(input)) return false;
+            pendingTrainingPraise = null;
             dog.AttendToUser();
             StartCoroutine(Train(input.Trim()));
             return true;
@@ -527,12 +587,17 @@ namespace Wjy.DogTraining
         {
             if (!VoiceAvailable) return;
             speech.StartListening();
-            if (speech.IsListening) dog.AttendToUser(4f);
+            if (speech.IsListening)
+            {
+                trainingVoiceStartedAt = Time.unscaledTime;
+                dog.AttendToUser(4f);
+            }
         }
         private void EndVoice() { if (VoiceListening) speech.StopAndSend(); }
         private void CancelVoice()
         {
             keyboardVoice = false;
+            trainingVoiceStartedAt = -1f;
             if (speech != null) speech.Cancel();
         }
         private void ToggleVoice()
@@ -542,7 +607,15 @@ namespace Wjy.DogTraining
         }
         private void SubmitVoiceTranscript(string transcript)
         {
-            if (!Submit(DogSpeechText.Normalize(transcript))) Notify("已经识别这句话。请等麦粒完成正在做的事，然后再说一次。");
+            string input = DogSpeechText.Normalize(transcript);
+            float spokenAt = trainingVoiceStartedAt >= 0f ? trainingVoiceStartedAt : Time.unscaledTime;
+            trainingVoiceStartedAt = -1f;
+            if (string.IsNullOrWhiteSpace(input)) return;
+            TrainingPraise praise = pendingTrainingPraise != null && spokenAt <= pendingTrainingPraise.expiresAt
+                ? pendingTrainingPraise : null;
+            bool accepted = praise != null || UseTrainingForVoice(input)
+                ? SubmitTrainingCue(input, praise) : Submit(input);
+            if (!accepted) Notify("已经识别这句话。请等麦粒完成正在做的事，然后再说一次。");
         }
 
         private void OnApplicationFocus(bool focused)
@@ -554,7 +627,7 @@ namespace Wjy.DogTraining
         {
             busy = true;
             caption = "你 · " + input;
-            if (input == "真棒" || input == "好狗狗" || input == "奖励" || input == "做得好")
+            if (IsPraise(input))
             {
                 ApplyFeedback(true);
                 busy = false;
@@ -566,8 +639,7 @@ namespace Wjy.DogTraining
                 yield break;
             }
             ClearTrickReward();
-            if (input.StartsWith("场景回应", StringComparison.Ordinal) || input.StartsWith("看看我", StringComparison.Ordinal) ||
-                input.StartsWith("看着我", StringComparison.Ordinal) || input.StartsWith("你在看什么", StringComparison.Ordinal))
+            if (IsSceneReply(input))
             {
                 yield return RespondToScene(input);
                 busy = false;
@@ -585,16 +657,15 @@ namespace Wjy.DogTraining
             }
             else if (input.IndexOf("：", StringComparison.Ordinal) >= 0 || input.IndexOf(":", StringComparison.Ordinal) >= 0)
             {
-                reply = "请给动作串起一个名字，再写两到三个口令，例如：晚安：坐下、抬右爪、拜一拜。";
+                reply = "请为动作串取个名字，再写两到三个口令，例如「晚安：坐下、抬右爪、过来」。";
             }
             else
             {
                 DogAgentDecision decision;
-                if (useModel && !string.IsNullOrWhiteSpace(model))
+                if (ModelConfigured)
                 {
                     reply = "麦粒侧耳听着……";
-                    string key = string.IsNullOrWhiteSpace(sessionKey) ? apiKey : sessionKey;
-                    Task<DogAgentDecision> request = agent.DecideAsync(input, endpoint, model, key);
+                    Task<DogAgentDecision> request = agent.DecideAsync(input, endpoint, model, ModelKey);
                     while (!request.IsCompleted) yield return null;
                     decision = request.Status == TaskStatus.RanToCompletion && request.Result != null ? request.Result : agent.Decide(input);
                 }
@@ -623,6 +694,13 @@ namespace Wjy.DogTraining
             nextAutonomy = Time.unscaledTime + 18f;
         }
 
+        private static bool IsPraise(string input) =>
+            input == "真棒" || input == "好狗狗" || input == "奖励" || input == "做得好";
+
+        private static bool IsSceneReply(string input) =>
+            input.StartsWith("场景回应", StringComparison.Ordinal) || input.StartsWith("看看我", StringComparison.Ordinal) ||
+            input.StartsWith("看着我", StringComparison.Ordinal) || input.StartsWith("你在看什么", StringComparison.Ordinal);
+
         private DogSceneObservation CapturePerception()
         {
             Vector3? left = null, right = null;
@@ -649,11 +727,10 @@ namespace Wjy.DogTraining
                     observation = CapturePerception();
                 }
                 DogPerceptionChoice choice;
-                if (useModel && DogPerceptionSelection.CanOffer(observation))
+                if (ModelConfigured && DogPerceptionSelection.CanOffer(observation))
                 {
                     reply = "麦粒正在看看周围……";
-                    string key = string.IsNullOrWhiteSpace(sessionKey) ? apiKey : sessionKey;
-                    var task = DogPerceptionSelection.SelectAsync(observation, endpoint, model, key, utterance);
+                    var task = DogPerceptionSelection.SelectAsync(observation, endpoint, model, ModelKey, utterance);
                     while (!task.IsCompleted) yield return null;
                     choice = task.Status == TaskStatus.RanToCompletion ? task.Result : null;
                 }
@@ -740,15 +817,17 @@ namespace Wjy.DogTraining
                 ClearTrickReward();
             }
             else reply = agent.Feedback(positive).Reply;
-            if (rewarded)
+            if (rewarded) RewardTrainingBehavior();
+        }
+
+        private void RewardTrainingBehavior()
+        {
+            dog.PlayTailWag();
+            var result = life.Complete(DogCareAction.Train);
+            if (result.Succeeded && result.BonesEarned > 0)
             {
-                dog.PlayTailWag();
-                var result = life.Complete(DogCareAction.Train);
-                if (result.Succeeded && result.BonesEarned > 0)
-                {
-                    Notify(result.Message);
-                    PlayReward();
-                }
+                Notify(result.Message);
+                PlayReward();
             }
         }
 
@@ -822,6 +901,7 @@ namespace Wjy.DogTraining
             if (choosingBreed && started) Time.timeScale = timeScaleBeforeBreedPicker;
             if (pause) Time.timeScale = 1f;
             if (started) life?.Save();
+            trainingProgress?.SavePendingChanges();
             world?.Dispose();
             if (markerMaterial != null) Destroy(markerMaterial);
             if (rewardSound != null) Destroy(rewardSound);

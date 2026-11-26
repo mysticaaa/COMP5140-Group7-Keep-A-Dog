@@ -41,8 +41,8 @@ namespace Wjy.DogTraining
         internal Vector3 ToyPoint => toyPoint.position;
         internal Vector3 WastePoint => wastePoint.position;
         internal Vector3 WalkPoint => walkPoint.position;
-        internal Vector3 FoodPoint => foodPoint.position;
-        internal Vector3 WaterPoint => waterPoint.position;
+        internal Transform FoodBowl => foodPoint;
+        internal Transform WaterBowl => waterPoint;
         internal Rect GardenBounds => gardenBounds;
         internal BoxCollider[] GardenObstacles => gardenObstacles;
         internal DogApartmentLift Lift => lift;

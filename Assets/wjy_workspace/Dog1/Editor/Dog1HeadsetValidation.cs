@@ -55,6 +55,8 @@ public static class Dog1HeadsetValidation
         Require(desktop!=rig.HeadCamera&&desktop.enabled&&!rig.HeadCamera.enabled,"desktop camera remains active without headset");
         Require(trainer.GetComponents<Dog2VrTraining>().Length==0,"one Dog1 simulation, no duplicate Dog2 trainer");
         Call(trainer,"BeginPlay");Set(trainer,"nextAutonomy",float.MaxValue);
+        Set(trainer, "sessionKey", "");
+        Set(trainer, "apiKey", "");
         Require(trainer.dog.VisualRoot.name == "border-collie - rigged", "fresh Dog1 uses the existing Border Collie model");
         trainer.HeadsetCanvas.gameObject.SetActive(true);
         rig.HeadCamera.enabled=true; desktop.enabled=false;
@@ -143,13 +145,10 @@ public static class Dog1HeadsetValidation
 
         string simulatedModel = Environment.GetEnvironmentVariable("CITYDOG_QA_MODEL_URL");
         bool useFixture = Uri.TryCreate(simulatedModel, UriKind.Absolute, out var fixture) && fixture.IsLoopback;
-        Set(trainer, "useModel", useFixture);
         if (useFixture)
         {
             trainer.endpoint = simulatedModel;
             trainer.model = "citydog-validation";
-            Set(trainer, "sessionKey", "");
-            Set(trainer, "apiKey", "");
         }
         trainer.StartCoroutine((IEnumerator)Call(trainer, "Train", "看看我"));
         float choiceDeadline = Time.realtimeSinceStartup + 23f;

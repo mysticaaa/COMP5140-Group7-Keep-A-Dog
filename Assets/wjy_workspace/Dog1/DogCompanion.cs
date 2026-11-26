@@ -1151,6 +1151,14 @@ namespace Wjy.DogTraining
             var physical = item.GetComponent<DogToyBody>();
             if (physical == null) RestoreLollipop();
             string itemName = physical != null ? physical.Label : toy ? "玩具球" : "棒棒糖毛绒玩具";
+            if (physical != null && toy)
+            {
+                float settleUntil = Time.time + 1.4f;
+                while (version == actionVersion && physical.Holder == DogToyHolder.Free &&
+                    !physical.IsSettled && Time.time < settleUntil)
+                    yield return null;
+                if (version != actionVersion) yield break;
+            }
             if (physical != null && !physical.CanFetch)
             {
                 StateLabel = "等" + itemName + "落稳后再叼回来";
@@ -1194,7 +1202,8 @@ namespace Wjy.DogTraining
             if (version != actionVersion) yield break;
             if (IsNearOwner())
             {
-                Vector3 dropSpot = transform.position + transform.forward * .47f + Vector3.up * .09f;
+                Vector3 towardOwner = Vector3.ProjectOnPlane(user.position - transform.position, Vector3.up);
+                Vector3 dropSpot = transform.position + Vector3.ClampMagnitude(towardOwner * .55f, .47f) + Vector3.up * .09f;
                 if (physical != null) physical.ReleaseFromDog(dropSpot, transform.rotation);
                 else
                 {

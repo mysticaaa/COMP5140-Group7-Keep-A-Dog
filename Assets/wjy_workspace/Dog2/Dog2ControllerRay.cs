@@ -12,6 +12,7 @@ namespace Wjy.DogTraining
         public Canvas TargetCanvas;
         public bool RightHand;
         public bool ManualInputForValidation;
+        internal System.Func<bool> BlockInput;
         public int ClickCount { get; private set; }
         private LineRenderer line;
         private Transform marker;
@@ -45,7 +46,7 @@ namespace Wjy.DogTraining
         private void LateUpdate()
         {
             if (ManualInputForValidation) return;
-            if (Rig == null || !Rig.TryGetAimRay(RightHand, out Ray ray))
+            if (BlockInput?.Invoke() == true || Rig == null || !Rig.TryGetAimRay(RightHand, out Ray ray))
             {
                 ProcessRay(new Ray(), false, false); return;
             }

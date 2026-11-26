@@ -27,8 +27,11 @@ namespace Wjy.DogTraining
         public Vector3 WalkDestination { get; private set; }
         public Vector3 WastePosition { get; private set; }
         public Vector3 ToyPosition { get; private set; }
-        public Vector3 FoodPosition { get; private set; }
-        public Vector3 WaterPosition { get; private set; }
+        private Vector3 foodHome, waterHome;
+        internal DogToyBody FoodBowl { get; private set; }
+        internal DogToyBody WaterBowl { get; private set; }
+        public Vector3 FoodPosition { get => FoodBowl != null ? FoodBowl.transform.position : foodHome; private set => foodHome = value; }
+        public Vector3 WaterPosition { get => WaterBowl != null ? WaterBowl.transform.position : waterHome; private set => waterHome = value; }
         public float PlayerBoundary => playerSpace.xMax;
         internal bool IsElevatorMoving => lift != null && lift.CarryingPlayer;
 
@@ -104,7 +107,18 @@ namespace Wjy.DogTraining
             if (position.x - radius < dogSpace.xMin || position.x + radius > dogSpace.xMax ||
                 position.z - radius < dogSpace.yMin || position.z + radius > dogSpace.yMax)
                 return false;
-            return !HitsObstacle(position, radius, obstacles) && !HitsObstacle(position, radius, dogPlayObstacles);
+            return !HitsObstacle(position, radius, obstacles) && !HitsObstacle(position, radius, dogPlayObstacles) &&
+                !TouchesBowl(FoodBowl, position, radius) && !TouchesBowl(WaterBowl, position, radius);
+        }
+
+        private static bool TouchesBowl(DogToyBody bowl, Vector3 position, float radius)
+        {
+            if (bowl == null || bowl.Holder != DogToyHolder.Free) return false;
+            Vector3 offset = position - bowl.transform.position;
+            if (Mathf.Abs(offset.y) > .2f) return false;
+            float dx = Mathf.Max(Mathf.Abs(offset.x) - .195f, 0f);
+            float dz = Mathf.Max(Mathf.Abs(offset.z) - .195f, 0f);
+            return dx * dx + dz * dz <= radius * radius;
         }
 
         private static Vector3 ClampTo(Rect bounds, Vector3 position)
@@ -250,8 +264,8 @@ namespace Wjy.DogTraining
         {
             Vector3 bowlCenter = (FoodPosition + WaterPosition) * 0.5f;
             Box("Washable care mat", bowlCenter + At(0, -0.014f, 0), At(1.16f, 0.035f, 0.65f), ColorOf("D5AA79"));
-            Bowl(FoodPosition, ColorOf("A65A43"), ColorOf("866449"), "Feeding bowl");
-            Bowl(WaterPosition, ColorOf("4C7D85"), ColorOf("86BAC1"), "Water bowl");
+            FoodBowl = BuildBowl(FoodPosition, ColorOf("A65A43"), ColorOf("866449"), "Feeding bowl", "食盆");
+            WaterBowl = BuildBowl(WaterPosition, ColorOf("4C7D85"), ColorOf("86BAC1"), "Water bowl", "水盆");
             AddDogPlayObstacle(FetchPosition + At(0.10f, 0f, 0f), 0.55f, 0.55f);
             Vector3 leash = WalkDestination + At(0.74f, 0.62f, 0.42f);
             Box("Leash peg", leash, At(0.075f, 1.23f, 0.075f), ColorOf("9D765A"));
@@ -273,6 +287,8 @@ namespace Wjy.DogTraining
 
         private GameObject foodServing, waterServing;
 
+        internal DogToyBody CareBowl(DogCareAction action) => action == DogCareAction.Feed ? FoodBowl : WaterBowl;
+
         internal bool HasServing(DogCareAction action) =>
             (action == DogCareAction.Feed ? foodServing : waterServing) != null;
 
@@ -283,11 +299,12 @@ namespace Wjy.DogTraining
             {
                 waterServing = Shape(PrimitiveType.Cylinder, "Fresh water", WaterPosition + At(0, .134f, 0),
                     At(.315f, .008f, .315f), ColorOf("78C9DB"));
+                waterServing.transform.SetParent(WaterBowl.transform, true);
                 waterServing.GetComponent<Renderer>().sharedMaterial.SetFloat("_Glossiness", .84f);
                 return;
             }
             foodServing = new GameObject("Fresh kibble");
-            foodServing.transform.SetParent(root, false);
+            foodServing.transform.SetParent(FoodBowl.transform, false);
             for (int i = 0; i < 26; i++)
             {
                 float angle = i * 2.4f;
@@ -308,12 +325,27 @@ namespace Wjy.DogTraining
             else waterServing = null;
         }
 
-        private void Bowl(Vector3 center, Color color, Color interior, string name)
+        private DogToyBody BuildBowl(Vector3 center, Color color, Color interior, string name, string label)
         {
-            AddDogPlayObstacle(center, 0.39f, 0.39f);
-            Cylinder(name + " body", center + At(0, 0.052f, 0), At(0.33f, 0.047f, 0.33f), color);
-            Cylinder(name + " rim", center + At(0, 0.106f, 0), At(0.39f, 0.018f, 0.39f), color * 1.10f);
-            Cylinder(name + " fill", center + At(0, 0.12f, 0), At(0.312f, 0.007f, 0.312f), interior);
+            var bowl = new GameObject(name).transform;
+            bowl.SetParent(root, false);
+            bowl.position = center;
+            Cylinder(name + " body", center + At(0, 0.052f, 0), At(0.33f, 0.047f, 0.33f), color).transform.SetParent(bowl, true);
+            Cylinder(name + " rim", center + At(0, 0.106f, 0), At(0.39f, 0.018f, 0.39f), color * 1.10f).transform.SetParent(bowl, true);
+            Cylinder(name + " fill", center + At(0, 0.12f, 0), At(0.312f, 0.007f, 0.312f), interior).transform.SetParent(bowl, true);
+            return BindBowl(bowl, label);
+        }
+
+        private static DogToyBody BindBowl(Transform bowl, string label)
+        {
+            var prop = bowl.GetComponent<DogToyBody>();
+            if (prop != null) return prop;
+            var collider = bowl.gameObject.AddComponent<BoxCollider>();
+            collider.center = At(0f, .065f, 0f);
+            collider.size = At(.39f, .13f, .39f);
+            prop = bowl.gameObject.AddComponent<DogToyBody>();
+            prop.Configure(label, collider, .44f, uprightDrop: true);
+            return prop;
         }
 
         private void Rug(Vector3 center, Vector3 size, Color color, Color border)
@@ -494,11 +526,9 @@ namespace Wjy.DogTraining
             return Shape(PrimitiveType.Cube, name, position, scale, color, rotation, solid, emission);
         }
 
-        private void Cylinder(string name, Vector3 position, Vector3 scale, Color color,
-            Vector3 rotation = default, bool solid = false, bool emission = false)
-        {
+        private GameObject Cylinder(string name, Vector3 position, Vector3 scale, Color color,
+            Vector3 rotation = default, bool solid = false, bool emission = false) =>
             Shape(PrimitiveType.Cylinder, name, position, scale, color, rotation, solid, emission);
-        }
 
         private GameObject Shape(PrimitiveType type, string name, Vector3 position, Vector3 scale, Color color,
             Vector3 rotation = default, bool solid = false, bool emission = false)
@@ -546,6 +576,7 @@ namespace Wjy.DogTraining
         {
             EmptyBowl(DogCareAction.Feed);
             EmptyBowl(DogCareAction.Water);
+            FoodBowl = WaterBowl = null;
             if (root != null)
             {
                 if (UsesSceneApartment)

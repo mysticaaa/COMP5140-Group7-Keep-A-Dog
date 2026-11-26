@@ -19,12 +19,15 @@ namespace Wjy.DogTraining
 
         internal string Label { get; private set; }
         internal DogToyHolder Holder { get; private set; }
-        internal bool CanFetch => Holder == DogToyHolder.Free && body.velocity.sqrMagnitude < .15f &&
+        internal bool UprightDrop { get; private set; }
+        internal bool IsSettled => Holder == DogToyHolder.Free && body.velocity.sqrMagnitude < .15f;
+        internal bool CanFetch => !UprightDrop && IsSettled &&
             Mathf.Abs(body.position.y - home.y) < .32f;
 
-        internal void Configure(string label, Collider shape, float mass)
+        internal void Configure(string label, Collider shape, float mass, bool uprightDrop = false)
         {
             Label = label;
+            UprightDrop = uprightDrop;
             toyCollider = shape;
             body = gameObject.AddComponent<Rigidbody>();
             body.mass = mass;
@@ -62,6 +65,7 @@ namespace Wjy.DogTraining
                 (holder == DogToyHolder.Dog && !CanFetch)) return false;
             Holder = holder;
             body.velocity = body.angularVelocity = Vector3.zero;
+            body.constraints = RigidbodyConstraints.None;
             body.isKinematic = true;
             body.interpolation = holder == DogToyHolder.Dog ? RigidbodyInterpolation.None : RigidbodyInterpolation.Interpolate;
             toyCollider.enabled = holder != DogToyHolder.Dog;
@@ -73,7 +77,7 @@ namespace Wjy.DogTraining
         internal void SetGripPose(Vector3 position, Quaternion rotation)
         {
             targetPosition = position;
-            targetRotation = rotation;
+            targetRotation = UprightDrop ? KeepUpright(rotation) : rotation;
         }
 
         internal void Drop(Vector3 velocity)
@@ -82,7 +86,13 @@ namespace Wjy.DogTraining
             toyCollider.enabled = true;
             body.isKinematic = false;
             body.interpolation = RigidbodyInterpolation.Interpolate;
-            body.velocity = Vector3.ClampMagnitude(velocity, 4.2f);
+            if (UprightDrop)
+            {
+                body.rotation = KeepUpright(body.rotation);
+                body.constraints = RigidbodyConstraints.FreezePositionX | RigidbodyConstraints.FreezePositionZ |
+                    RigidbodyConstraints.FreezeRotation;
+            }
+            body.velocity = UprightDrop ? Vector3.zero : Vector3.ClampMagnitude(velocity, 4.2f);
             body.angularVelocity = Vector3.zero;
             recoveryAt = Time.time + 1f;
             inaccessibleSince = 0f;
@@ -95,6 +105,12 @@ namespace Wjy.DogTraining
             body.rotation = rotation;
             transform.SetPositionAndRotation(position, rotation);
             Drop(Vector3.zero);
+        }
+
+        private static Quaternion KeepUpright(Quaternion rotation)
+        {
+            Vector3 forward = Vector3.ProjectOnPlane(rotation * Vector3.forward, Vector3.up);
+            return forward.sqrMagnitude > .0001f ? Quaternion.LookRotation(forward) : Quaternion.identity;
         }
 
         private void FixedUpdate()

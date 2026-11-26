@@ -22,8 +22,8 @@ namespace Wjy.DogTraining
             if (lift != null) lift.ResetLift();
             dogSpace = dogBounds;
             PlayerStart = layout.PlayerStart;
-            FoodPosition = layout.FoodPoint;
-            WaterPosition = layout.WaterPoint;
+            FoodBowl = BindBowl(layout.FoodBowl, "食盆");
+            WaterBowl = BindBowl(layout.WaterBowl, "水盆");
             ToyPosition = layout.ToyPoint;
             WastePosition = layout.WastePoint;
             WalkDestination = layout.WalkPoint;
@@ -58,8 +58,6 @@ namespace Wjy.DogTraining
             foreach (Transform marker in dogPlayMarkers)
                 if (marker != null && marker.gameObject.activeInHierarchy)
                     AddDogPlayObstacle(marker.position, marker.lossyScale.x, marker.lossyScale.z);
-            AddDogPlayObstacle(FoodPosition, .39f, .39f);
-            AddDogPlayObstacle(WaterPosition, .39f, .39f);
             AddDogPlayObstacle(FetchPosition + At(.10f, 0f, 0f), .55f, .55f);
 
             foreach (DogApartmentLayout.Door door in doors)

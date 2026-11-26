@@ -110,6 +110,9 @@ namespace Wjy.DogTraining
             XrImage(panel.transform, "麦粒的回应", new Vector2(36,122), new Vector2(748,92), BookNote);
             xrReply = XrText(panel.transform, "", new Vector2(53,128), new Vector2(714,78), 24);
             xrReply.alignment = TextAnchor.MiddleLeft;
+            xrReply.resizeTextForBestFit = true;
+            xrReply.resizeTextMinSize = 17;
+            xrReply.resizeTextMaxSize = 24;
             xrVoice = XrText(panel.transform, "", new Vector2(36,85), new Vector2(748,32), 22);
             xrVoice.color = Olive;
             xrInputTrack = XrImage(panel.transform, "录音音量底", new Vector2(36,79), new Vector2(748,4), BookTab);
@@ -136,6 +139,7 @@ namespace Wjy.DogTraining
                 var pointer = new GameObject(right ? "Dog1 right ray" : "Dog1 left ray").AddComponent<Dog2ControllerRay>();
                 pointer.transform.SetParent(host.transform, false);
                 pointer.Rig = HeadsetRig; pointer.TargetCanvas = HeadsetCanvas; pointer.RightHand = right;
+                pointer.BlockInput = () => PropBlocksUi(right);
             }
             PlaceHeadset(); BuildHeadsetPage(); panel.SetActive(false);
         }
@@ -223,7 +227,8 @@ namespace Wjy.DogTraining
             string purpose = showDeveloperPurpose && started ? "麦粒正在" + DeveloperDogAction : "";
             string hint = string.IsNullOrEmpty(world.InteractionHint) ? "" :
                 world.InteractionHint.Replace("E  ", "右握把  ");
-            xrReply.text = !string.IsNullOrEmpty(hint) ? hint + "\n" + response :
+            xrReply.text = xrTab == 2 && !string.IsNullOrEmpty(TrainingResultText) && reply == TrainingResultText ? reply :
+                !string.IsNullOrEmpty(hint) ? hint + "\n" + response :
                 !string.IsNullOrEmpty(purpose) ? purpose + "\n" + response : response;
             xrVoice.text = VoiceListening ? "正在听，松开 A 发送。音量 " + Mathf.RoundToInt(speech.InputLevel*100) + "%"
                 : VoiceFinalizing ? speech.Status : (string.IsNullOrEmpty(VoiceTranscript) ? speech.Status : "你说  " + VoiceTranscript);
@@ -256,9 +261,19 @@ namespace Wjy.DogTraining
             }
             else if (xrTab == 2)
             {
-                string[] commands={"坐下","趴下","抬右爪","转圈","拜一拜","把玩具拿来"};
-                for(int i=0;i<commands.Length;i++) {string command=commands[i]; PageButton(command,i,()=>Submit(command),()=>Ready);}
-                XrText(xrPage, "等它做完，再表扬。也可以按住 A 说出你自己的口令。",
+                var skills = Dog1TrainingProgress.SkillIds;
+                for (int i = 0; i < skills.Count; i++)
+                {
+                    string skill = skills[i];
+                    string label = TrainingLabel(skill);
+                    Button control = PageButton(label, i, () => SubmitTrainingCue(label),
+                        () => Ready && !VoiceListening && !VoiceFinalizing);
+                    Text skillLabel = control.GetComponentInChildren<Text>();
+                    Action update = () => skillLabel.text = label + "\n" + TrainingProbability(skill) + "%";
+                    xrBindings.Add(update);
+                    update();
+                }
+                XrText(xrPage, "按住 A 说出你的指令，松开后查看训练结果。",
                     new Vector2(0,251), new Vector2(748,49), 25);
                 StoryQuickButton("真棒 · 奖励", 0, () => ApplyFeedback(true), () => Ready && (CanRewardTrick || agent.CanReward));
             }
@@ -277,12 +292,13 @@ namespace Wjy.DogTraining
             {
                 PageButton("切换麦克风",0,()=>{speech.CycleMicrophone(); BuildHeadsetPage();},()=>!VoiceListening&&!VoiceFinalizing);
                 PageButton("重新连接 VR",1,()=>HeadsetRig.RetryXR());
-                PageButton(useModel?"Agent 模型：开":"Agent 模型：关",2,()=>{useModel=!useModel; BuildHeadsetPage();});
-                PageButton(dog.ShowKeypoints?"隐藏骨架":"显示骨架",3,()=>{dog.ShowKeypoints=!dog.ShowKeypoints; BuildHeadsetPage();});
-                PageButton(showDeveloperPurpose ? "隐藏当前动作" : "显示当前动作",4,()=>
+                PageButton(dog.ShowKeypoints?"隐藏骨架":"显示骨架",2,()=>{dog.ShowKeypoints=!dog.ShowKeypoints; BuildHeadsetPage();});
+                PageButton(showDeveloperPurpose ? "隐藏当前动作" : "显示当前动作",3,()=>
                 {showDeveloperPurpose=!showDeveloperPurpose;BuildHeadsetPage();});
-                PageButton("奖励提示音"+(quiet?"：关":"：开"),5,()=>{ToggleRewardAudio();BuildHeadsetPage();});
-                XrText(xrPage, speech.SelectedMicrophoneLabel+"\n"+speech.ServiceStatus,new Vector2(0,0),new Vector2(748,82),21);
+                PageButton("奖励提示音"+(quiet?"：关":"：开"),4,()=>{ToggleRewardAudio();BuildHeadsetPage();});
+                Text modelStatus = XrText(xrPage, "", new Vector2(0,0), new Vector2(748,82), 21);
+                xrBindings.Add(() => modelStatus.text = ModelConfigurationStatus + "\n" +
+                    speech.SelectedMicrophoneLabel + "\n" + speech.ServiceStatus);
             }
             else if (xrTab == 6)
             {
@@ -527,10 +543,11 @@ namespace Wjy.DogTraining
             HeadsetRig.Origin.position+=apartmentHead.position-head.position;
             return result;
         }
-        private void PageButton(string text,int slot,Action action,Func<bool> enabled=null)
+        private Button PageButton(string text,int slot,Action action,Func<bool> enabled=null)
         {
             var b=XrButton(xrPage,text,new Vector2((slot%3)*252,168-(slot/3)*80),new Vector2(244,72),action);
             if(enabled!=null){Action update=()=>b.interactable=enabled();xrBindings.Add(update);update();}
+            return b;
         }
         private static GameObject XrObject(Transform parent,string name,Vector2 at,Vector2 size,Type type)
         {

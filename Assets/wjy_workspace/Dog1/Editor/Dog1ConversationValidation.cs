@@ -53,7 +53,6 @@ public static class Dog1ConversationValidation
     {
         DogCompanion dog = training.dog;
         Call(training, "BeginPlay");
-        Set(training, "useModel", false);
         Set(training, "sessionKey", "");
         Set(training, "apiKey", "");
         Set(training, "nextAutonomy", float.MaxValue);
@@ -126,7 +125,6 @@ public static class Dog1ConversationValidation
         Require(Uri.TryCreate(fixtureOrigin, UriKind.Absolute, out var fixture) && fixture.Scheme == "http" &&
             fixture.Host == "127.0.0.1" && string.IsNullOrEmpty(fixture.UserInfo),
             "Conversation QA accepts only a loopback HTTP fixture without credentials");
-        Set(training, "useModel", true);
         training.model = "citydog-conversation-fixture";
         foreach (string mode in new[] { "allowed", "disallowed", "unavailable" })
         {

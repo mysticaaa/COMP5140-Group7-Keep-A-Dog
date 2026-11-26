@@ -34,21 +34,25 @@ namespace KeepADog.Demo
             return Parse(content);
         }
 
-        internal static async Task<string> RequestJsonAsync(string instructions, string input, string endpoint, string model, string apiKey)
-        {
-            if (!Uri.TryCreate(endpoint, UriKind.Absolute, out Uri uri) ||
-                (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) ||
-                !string.IsNullOrEmpty(uri.UserInfo) || string.IsNullOrWhiteSpace(model))
-                return null;
+        internal static bool TryGetEndpoint(string endpoint, string model, out Uri uri) =>
+            Uri.TryCreate(endpoint, UriKind.Absolute, out uri) &&
+            (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)) &&
+            string.IsNullOrEmpty(uri.UserInfo) && !string.IsNullOrWhiteSpace(model);
 
+        internal static async Task<string> RequestJsonAsync(string instructions, string input, string endpoint,
+            string model, string apiKey, bool useDeepSeekThinking = false, Action<string> onRequestSent = null)
+        {
+            if (!TryGetEndpoint(endpoint, model, out Uri uri)) return null;
+            bool isDeepSeek = uri.Host.Equals("api.deepseek.com", StringComparison.OrdinalIgnoreCase);
+            bool thinking = isDeepSeek && useDeepSeekThinking;
             var payload = new Request
             {
                 model = model.Trim(),
                 messages = new[] { new Message("system", instructions), new Message("user", input) },
                 response_format = new ResponseFormat { type = "json_object" },
                 stream = false,
-                temperature = 0f,
-                max_tokens = 256
+                temperature = thinking ? 1f : 0f,
+                max_tokens = thinking ? 4096 : 256
             };
 
             try
@@ -56,25 +60,28 @@ namespace KeepADog.Demo
                 using (var request = new UnityWebRequest(uri.AbsoluteUri, UnityWebRequest.kHttpVerbPOST))
                 {
                     string json = JsonUtility.ToJson(payload);
-                    if (uri.Host.Equals("api.deepseek.com", StringComparison.OrdinalIgnoreCase))
+                    if (isDeepSeek)
                     {
-                        // Keep the command parser responsive and reserve the output budget for JSON.
-                        json = json.Insert(json.Length - 1, ",\"thinking\":{\"type\":\"disabled\"}");
+                        string options = thinking
+                            ? ",\"thinking\":{\"type\":\"enabled\"},\"reasoning_effort\":\"low\""
+                            : ",\"thinking\":{\"type\":\"disabled\"}";
+                        json = json.Insert(json.Length - 1, options);
                     }
                     request.uploadHandler = new UploadHandlerRaw(Encoding.UTF8.GetBytes(json));
                     request.downloadHandler = new DownloadHandlerBuffer();
-                    request.timeout = 12;
+                    request.timeout = thinking ? 45 : 12;
                     request.redirectLimit = 0;
                     request.SetRequestHeader("Content-Type", "application/json");
                     if (!string.IsNullOrWhiteSpace(apiKey))
                         request.SetRequestHeader("Authorization", "Bearer " + apiKey.Trim());
 
                     UnityWebRequestAsyncOperation operation = request.SendWebRequest();
+                    onRequestSent?.Invoke(json);
                     var completion = new TaskCompletionSource<bool>();
                     operation.completed += _ => completion.TrySetResult(true);
                     if (operation.isDone) completion.TrySetResult(true);
                     await completion.Task;
-                    if (request.result != UnityWebRequest.Result.Success || request.downloadedBytes > 32768)
+                    if (request.result != UnityWebRequest.Result.Success || request.downloadedBytes > (thinking ? 131072UL : 32768UL))
                     {
                         Debug.LogWarning("Dog model request failed. HTTP " + request.responseCode + ", result " + request.result);
                         return null;

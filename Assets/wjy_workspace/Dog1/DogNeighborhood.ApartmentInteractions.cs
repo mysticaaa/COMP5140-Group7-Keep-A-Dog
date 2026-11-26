@@ -55,8 +55,8 @@ namespace Wjy.DogTraining
             if (!allowInput) return null;
             Physics.SyncTransforms();
 
-            float foodAim = BowlAim(camera, FoodPosition);
-            float waterAim = BowlAim(camera, WaterPosition);
+            float foodAim = BowlAim(camera, FoodBowl);
+            float waterAim = BowlAim(camera, WaterBowl);
             if (Mathf.Max(foodAim, waterAim) > 0f)
             {
                 DogCareAction action = foodAim >= waterAim ? DogCareAction.Feed : DogCareAction.Water;
@@ -103,11 +103,12 @@ namespace Wjy.DogTraining
             return null;
         }
 
-        private static float BowlAim(Transform camera, Vector3 center)
+        private static float BowlAim(Transform camera, DogToyBody bowl)
         {
-            Vector3 surface = center + Vector3.up * .16f;
+            if (bowl == null || !bowl.IsSettled) return 0f;
+            Vector3 surface = bowl.transform.position + Vector3.up * .16f;
             float aim = Vector3.Dot(camera.forward, (surface - camera.position).normalized);
-            return aim > .95f && CanReach(camera, surface, 2.25f, null, out _) ? aim : 0f;
+            return aim > .95f && CanReach(camera, surface, 2.25f, bowl.transform, out _) ? aim : 0f;
         }
 
         private static bool CanReach(Transform camera, Vector3 target, float reach, Transform owner, out float distance)

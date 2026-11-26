@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
@@ -108,6 +109,17 @@ namespace Wjy.DogTraining
         private IEnumerator RunDeveloperAction(DogCompanion companion, DogDemoAction action)
         {
             reply = "动作预览 · " + action.Label;
+            yield return ExecuteDeveloperAction(companion, action, succeeded =>
+            {
+                if (!succeeded && action.IsMicro)
+                    reply = "当前犬种或姿势无法演示「" + action.Label + "」。";
+                else if (!succeeded && action.Id.EndsWith("_sample", StringComparison.Ordinal))
+                    reply = "这里空间不够，请在公园的空地演示。";
+            });
+        }
+
+        private IEnumerator ExecuteDeveloperAction(DogCompanion companion, DogDemoAction action, Action<bool> completed)
+        {
             if (action.IsMicro)
             {
                 float deadline = Time.time + 5.25f;
@@ -115,20 +127,25 @@ namespace Wjy.DogTraining
                 {
                     if (Time.time >= deadline)
                     {
-                        reply = "当前犬种或姿势无法演示「" + action.Label + "」。";
+                        completed(false);
                         yield break;
                     }
                     yield return null;
                 }
                 float finish = Time.time + 4.3f;
                 while (companion.IsPlayingMicroAction && Time.time < finish) yield return null;
+                completed(!companion.IsPlayingMicroAction);
             }
-            else if (action.Id.EndsWith("_sample", System.StringComparison.Ordinal))
+            else if (action.Id.EndsWith("_sample", StringComparison.Ordinal))
             {
                 yield return companion.PreviewTravel(action.Id);
-                if (!companion.LastActivitySucceeded) reply = "这里空间不够，请在公园的空地演示。";
+                completed(companion.LastActivitySucceeded);
             }
-            else yield return companion.PerformAction(action.Id, .22f);
+            else
+            {
+                yield return companion.PerformAction(action.Id, .22f);
+                completed(action.Id == "refuse" || DogActionSelection.Succeeded(companion, action.Id));
+            }
         }
 
         private void DrawMotionPreview()

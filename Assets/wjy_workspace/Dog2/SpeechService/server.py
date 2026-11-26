@@ -5,6 +5,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import secrets
 import threading
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -17,6 +18,7 @@ if MODEL_NAME not in ("base", "small"):
     raise ValueError("CITYDOG_WHISPER_MODEL must be auto, base or small")
 MODEL_PATH = ROOT / "Cache~" / MODEL_NAME
 SERVICE = "wjy-dog2-whisper-v1"
+TRAINING_SERVICE = "wjy-dog1-training-draw-v1"
 model = None
 model_error = ""
 model_lock = threading.Lock()
@@ -42,11 +44,19 @@ def warm_model():
         model_error = str(exc)
         logging.exception("Could not load speech model")
 
+def training_draw(success_rate):
+    if type(success_rate) is not int or not 0 <= success_rate <= 100:
+        raise ValueError("Expected an integer successRate from 0 to 100")
+    roll = secrets.randbelow(100) + 1
+    return {"service": TRAINING_SERVICE, "successRate": success_rate, "roll": roll,
+            "status": "success" if roll <= success_rate else "failure"}
+
 class Handler(BaseHTTPRequestHandler):
     def reply(self, status, body):
         encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(encoded)))
         self.end_headers()
         self.wfile.write(encoded)
@@ -58,6 +68,20 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(404, {"error": "Unknown path"})
 
     def do_POST(self):
+        if self.path == "/training-draw":
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 128:
+                    raise ValueError("Expected a small JSON body with a successRate")
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict):
+                    raise ValueError("Expected a JSON object")
+                result = training_draw(payload.get("successRate"))
+            except ValueError as exc:
+                self.reply(400, {"error": str(exc)})
+            else:
+                self.reply(200, result)
+            return
         if self.path != "/transcribe":
             self.reply(404, {"error": "Unknown path"}); return
         if model is None:

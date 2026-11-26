@@ -96,7 +96,7 @@ namespace Wjy.DogTraining
             string choice = input.Contains("等一会儿") || input.Contains("稍后") || input.Contains("不玩") ? "later" :
                 !asksPreference && offersQuiet ? "quiet" : CanPlayNow() ? "play" : "quiet";
             string line = "";
-            if (useModel && asksPreference && !string.IsNullOrWhiteSpace(model))
+            if (asksPreference && ModelConfigured)
             {
                 var scene = CapturePerception();
                 var context = new InvitationContext
@@ -109,8 +109,7 @@ namespace Wjy.DogTraining
                 };
                 reply = "麦粒看了看球，又听了听你。";
                 storyResponseUntil = Time.unscaledTime + 14f;
-                string key = string.IsNullOrWhiteSpace(sessionKey) ? apiKey : sessionKey;
-                var request = DogLanguageModel.RequestJsonAsync(InvitationInstructions, JsonUtility.ToJson(context), endpoint, model, key);
+                var request = DogLanguageModel.RequestJsonAsync(InvitationInstructions, JsonUtility.ToJson(context), endpoint, model, ModelKey);
                 while (!request.IsCompleted) yield return null;
                 var decision = request.Status == TaskStatus.RanToCompletion ? ParseInvitation(request.Result, context.candidates) : null;
                 if (decision != null && HasPlayInvitation)

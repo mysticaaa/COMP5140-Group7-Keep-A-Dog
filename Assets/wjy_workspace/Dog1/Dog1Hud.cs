@@ -35,6 +35,8 @@ namespace Wjy.DogTraining
         private Vector2 scroll;
         private bool queuedVoiceStart, queuedVoiceStop, queuedVoiceCancel;
         private bool showControls, journalOpen = true, chapterOpen = true, memoryOpen;
+        private bool showTrainingTrace;
+        private int trainingTraceIndex;
         private int pointerVoiceControl;
         private bool IsTextEntryFocused { get; set; }
         private bool showDeveloperPurpose;
@@ -285,9 +287,10 @@ namespace Wjy.DogTraining
             GUILayout.Space(6);
 
             GUILayout.BeginHorizontal();
-            Tab("照护", 0); Tab("说话", 1); Tab("地图", 2); Tab("设置", 3); Tab("动作", 4);
+            Tab("照护", 0); Tab("训练", 1); Tab("地图", 2); Tab("设置", 3); Tab("动作", 4);
             GUILayout.EndHorizontal();
 
+            DrawTrainingResponse();
             scroll = GUILayout.BeginScrollView(scroll, stack);
             GUILayout.Space(6);
             switch (tab)
@@ -511,21 +514,15 @@ namespace Wjy.DogTraining
             }
 
             GUILayout.Space(7);
-            GUILayout.Label("练习口令", heading);
-            GUILayout.BeginHorizontal();
-            Cue("坐下"); Cue("趴下"); Cue("过来");
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            Cue("抬右爪"); Cue("伏身邀玩"); Cue("叼球");
-            GUILayout.EndHorizontal();
-            GUILayout.BeginHorizontal();
-            Cue("轻扑一下"); Cue("闻一闻");
-            GUILayout.EndHorizontal();
-            if (GUILayout.Button("教它「晚安」动作串", button)) Submit("晚安：坐下、抬右爪、拜一拜");
-            GUILayout.BeginHorizontal();
-            if (GUILayout.Button("教它叼毛绒玩具", button)) Submit(KeepADog.Demo.DogAgent.TeachExample);
-            if (GUILayout.Button("我心情不好", button)) Submit("我心情不好");
-            GUILayout.EndHorizontal();
+            GUILayout.Label("训练技能", heading);
+            var skills = Dog1TrainingProgress.SkillIds;
+            for (int i = 0; i < skills.Count; i += 2)
+            {
+                GUILayout.BeginHorizontal();
+                TrainingCue(skills[i]);
+                if (i + 1 < skills.Count) TrainingCue(skills[i + 1]);
+                GUILayout.EndHorizontal();
+            }
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
             GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing && (CanRewardTrick || agent.CanReward);
@@ -535,16 +532,69 @@ namespace Wjy.DogTraining
             GUI.enabled = enabled;
             GUILayout.EndHorizontal();
 
+            DrawTrainingTrace();
             GUILayout.Space(9);
             if (GUILayout.Button(memoryOpen ? "收起互动记忆" : "查看互动记忆", selected))
                 memoryOpen = !memoryOpen;
             if (!memoryOpen) return;
+            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
+            if (GUILayout.Button("教它「晚安」动作串", button)) Submit("晚安：坐下、抬右爪、过来");
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("教它叼毛绒玩具", button)) Submit(KeepADog.Demo.DogAgent.TeachExample);
+            if (GUILayout.Button("我心情不好", button)) Submit("我心情不好");
+            GUILayout.EndHorizontal();
+            GUI.enabled = enabled;
             GUILayout.Label("它学会了什么", heading);
             GUILayout.Label(agent.LongTermSummary, small);
             GUILayout.Label(routines.Summary, small);
             GUILayout.Space(5);
             GUILayout.Label("最近互动", heading);
             GUILayout.Label(agent.ShortTermSummary, small);
+        }
+
+        private void DrawTrainingResponse()
+        {
+            if (string.IsNullOrEmpty(TrainingResultText)) return;
+            GUILayout.Space(7);
+            GUILayout.Label("训练反馈", heading);
+            if (!string.IsNullOrEmpty(TrainingInputText))
+                GUILayout.Label("你说  " + TrainingInputText, meta);
+            GUILayout.Label(TrainingResultText, body);
+            GUILayout.Space(7);
+            Divider();
+        }
+
+        private void DrawTrainingTrace()
+        {
+            if (GUILayout.Button(showTrainingTrace ? "收起 LLM 调试记录" : "查看 LLM 调试记录", selected))
+                showTrainingTrace = !showTrainingTrace;
+            if (!showTrainingTrace) return;
+            if (trainingTraces.Count == 0)
+            {
+                GUILayout.Label("完成一次模型训练后，这里会显示该次请求、回复和游戏结果。", small);
+                return;
+            }
+
+            GUILayout.BeginHorizontal();
+            bool enabled = GUI.enabled;
+            GUI.enabled = enabled && trainingTraceIndex > 0;
+            if (GUILayout.Button("较新", button)) trainingTraceIndex--;
+            GUI.enabled = enabled && trainingTraceIndex < trainingTraces.Count - 1;
+            if (GUILayout.Button("较早", button)) trainingTraceIndex++;
+            GUI.enabled = enabled;
+            GUILayout.EndHorizontal();
+            TrainingTrace trace = trainingTraces[trainingTraceIndex];
+            GUILayout.Label("发送给模型的请求", heading);
+            GUILayout.Label(trace.Request, small);
+            GUILayout.Label("模型原始输出", heading);
+            GUILayout.Label(trace.Output ?? "无回复", small);
+            if (!string.IsNullOrEmpty(trace.Sampling))
+            {
+                GUILayout.Label("本机抽样", heading);
+                GUILayout.Label(trace.Sampling, small);
+            }
+            GUILayout.Label("Unity 实际结果", heading);
+            GUILayout.Label(trace.Effect, body);
         }
 
         private void DrawVoiceControl()
@@ -594,14 +644,16 @@ namespace Wjy.DogTraining
             Box(new Rect(center.x - 1f, center.y + 7f, 2f, 4f), color, 1f);
         }
 
-        private void Cue(string cue)
+        private void TrainingCue(string skill)
         {
-            if (GUILayout.Button(cue, button, GUILayout.ExpandWidth(true))) Submit(cue);
+            string label = TrainingLabel(skill);
+            if (GUILayout.Button(label + "  " + TrainingProbability(skill) + "%", button, GUILayout.ExpandWidth(true)))
+                SubmitTrainingCue(label);
         }
 
         private void SendField()
         {
-            if (Submit(message)) message = "";
+            if (SubmitTrainingCue(message)) message = "";
         }
 
         private void DrawMap()
@@ -678,25 +730,22 @@ namespace Wjy.DogTraining
             }
             if (!string.IsNullOrWhiteSpace(VoiceStatus)) GUILayout.Label(VoiceStatus, small);
             GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
-            if (GUILayout.Button(useModel ? "停用可选模型" : "启用可选模型", button)) useModel = !useModel;
-            if (useModel)
+            GUILayout.Label(ModelConfigurationStatus, body);
+            GUILayout.Label("需要判断指令或场景时，游戏会自动调用大模型。", small);
+            GUILayout.Label("接口地址", small);
+            GUI.SetNextControlName("ModelEndpoint");
+            endpoint = GUILayout.TextField(endpoint ?? "", 400, textField);
+            GUILayout.Label("模型名", small);
+            GUI.SetNextControlName("ModelName");
+            model = GUILayout.TextField(model ?? "", 160, textField);
+            GUILayout.Label("本次运行的 API Key", small);
+            GUI.SetNextControlName("ModelKey");
+            sessionKey = GUILayout.PasswordField(sessionKey, '*', 512, textField);
+            if (GUILayout.Button("使用本机 Ollama 地址", button))
             {
-                GUILayout.Label("需要模型判断时，会发送这一句和训练摘要。", small);
-                GUILayout.Label("接口地址", small);
-                GUI.SetNextControlName("ModelEndpoint");
-                endpoint = GUILayout.TextField(endpoint ?? "", 400, textField);
-                GUILayout.Label("模型名", small);
-                GUI.SetNextControlName("ModelName");
-                model = GUILayout.TextField(model ?? "", 160, textField);
-                GUILayout.Label("本次运行的 API Key", small);
-                GUI.SetNextControlName("ModelKey");
-                sessionKey = GUILayout.PasswordField(sessionKey, '*', 512, textField);
-                if (GUILayout.Button("使用本机 Ollama 地址", button))
-                {
-                    endpoint = "http://127.0.0.1:11434/v1/chat/completions";
-                    model = "";
-                    sessionKey = "";
-                }
+                endpoint = "http://127.0.0.1:11434/v1/chat/completions";
+                model = "";
+                sessionKey = "";
             }
             GUILayout.Space(9);
             Divider();
