@@ -134,7 +134,7 @@ namespace Wjy.DogTraining
         private void DrawMotionPreview()
         {
             GUILayout.Label("动作开发者模式", heading);
-            GUILayout.Label("逐项查看姿态、头颈动作和走路转弯。", small);
+            GUILayout.Label("逐项演示姿态、头颈动作和转弯；预览不计入任务或奖励。", small);
             if (view != null && GUILayout.Button("看向麦粒", button))
                 view.LookAt(dog.PerceptionHead != null ? dog.PerceptionHead.position : dog.transform.position + Vector3.up * .45f);
             bool previous = GUI.enabled;

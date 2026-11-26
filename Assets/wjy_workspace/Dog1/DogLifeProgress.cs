@@ -181,15 +181,14 @@ namespace Wjy.DogTraining
         public string GetBlockReason(DogCareAction action)
         {
             if (!IsAction(action)) return "这个照护动作还不可用。";
-            float cooldown = GetCooldownRemaining(action);
-            if (cooldown > 0f) return "再等 " + Mathf.CeilToInt(cooldown) + " 秒。";
+            // Rest is always useful as a quiet interaction; its cooldown limits rewards only.
+            if (action == DogCareAction.Rest) return "";
             switch (action)
             {
                 case DogCareAction.Feed when Satiety >= 90f: return "麦粒现在已经吃饱了。";
                 case DogCareAction.Water when Hydration >= 95f: return "麦粒刚喝过水。";
                 case DogCareAction.Walk when WasteCount >= MaxWaste: return "先清理附近的便便。";
                 case DogCareAction.Clean when WasteCount == 0: return "这里没有要清理的便便。";
-                case DogCareAction.Rest when Energy >= 94f: return "麦粒现在精神很好。";
                 case DogCareAction.Walk:
                 case DogCareAction.Play:
                 case DogCareAction.Train:
@@ -204,19 +203,58 @@ namespace Wjy.DogTraining
         {
             string reason = GetBlockReason(action);
             if (reason.Length != 0) return new DogCareResult(false, reason);
+            return RecordCompletedCare(action);
+        }
+
+        public DogCareResult RecordCompletedCare(DogCareAction action)
+        {
+            if (!IsAction(action)) return new DogCareResult(false, "这个照护动作还不可用。");
+            if (action == DogCareAction.Rest) return CompleteRest();
 
             int previousExperience = TotalExperience;
             int previousBones = Bones;
             int previousChapter = CurrentChapter.Number;
             int actionIndex = (int)action;
             ActionSettings settings = Actions[actionIndex];
+            bool rewardAvailable = data.cooldowns[actionIndex] <= 0f;
             string message = ApplyCare(action);
-            data.cooldowns[actionIndex] = settings.Cooldown;
             if (!data.storyFinished) data.chapterCounts[actionIndex] = Math.Min(data.chapterCounts[actionIndex] + 1, 10);
 
-            Award(settings.Experience, settings.Bones);
+            if (rewardAvailable)
+            {
+                data.cooldowns[actionIndex] = settings.Cooldown;
+                Award(settings.Experience, settings.Bones);
+            }
             if (TryFinishChapter())
                 message += ChapterFinished ? " 你们一起走过了收养后的第一周。" : " 已完成第 " + previousChapter + " 章。";
+            Save();
+            return new DogCareResult(true, message, TotalExperience - previousExperience, Bones - previousBones);
+        }
+
+        public DogCareResult CompleteRest(bool playerInitiated = true)
+        {
+            int previousExperience = TotalExperience;
+            int previousBones = Bones;
+            int previousChapter = CurrentChapter.Number;
+            int actionIndex = (int)DogCareAction.Rest;
+            ActionSettings settings = Actions[actionIndex];
+            bool rewardAvailable = playerInitiated && data.cooldowns[actionIndex] <= 0f;
+            string message = ApplyCare(DogCareAction.Rest);
+
+            if (playerInitiated)
+            {
+                if (!data.storyFinished)
+                    data.chapterCounts[actionIndex] = Math.Min(data.chapterCounts[actionIndex] + 1, 10);
+                if (rewardAvailable)
+                {
+                    data.cooldowns[actionIndex] = settings.Cooldown;
+                    Award(settings.Experience, settings.Bones);
+                }
+                if (TryFinishChapter())
+                    message += ChapterFinished ? " 你们一起走过了收养后的第一周。" : " 已完成第 " + previousChapter + " 章。";
+            }
+            else message = "麦粒自己安静地休息了一会儿。";
+
             Save();
             return new DogCareResult(true, message, TotalExperience - previousExperience, Bones - previousBones);
         }

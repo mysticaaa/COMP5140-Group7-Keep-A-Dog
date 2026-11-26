@@ -27,10 +27,11 @@ namespace Wjy.DogTraining
 
         public static bool Succeeded(DogCompanion dog, string motion)
         {
+            if (dog.LastCompletedAction != motion) return false;
             if (motion.StartsWith("fetch_", StringComparison.Ordinal)) return dog.LastFetchSucceeded;
             if (motion == "come") return dog.LastComeSucceeded;
             if (motion == "pounce") return dog.LastPlaySucceeded;
-            return motion != "refuse";
+            return motion != "refuse" && dog.LastCompletedAction == motion;
         }
     }
 }

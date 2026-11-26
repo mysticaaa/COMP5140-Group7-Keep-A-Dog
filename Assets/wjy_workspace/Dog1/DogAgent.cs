@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -8,6 +9,13 @@ using UnityEngine;
 namespace KeepADog.Demo
 {
     public enum DogIntent { Wait, Sit, Crouch, Spin, Come, Fetch, Comfort, Paw, Bow, FetchBall, Pounce, Sniff }
+
+    [Serializable]
+    public sealed class DogAgentAction
+    {
+        public string id;
+        public string target;
+    }
 
     public sealed class DogAgentDecision
     {
@@ -17,6 +25,11 @@ namespace KeepADog.Demo
         public bool IsRecall { get; }
         public bool IsRefusal { get; }
         public string[] Steps { get; }
+        public bool UsedModel { get; internal set; }
+        public string ModelReply { get; internal set; } = "";
+        public DogAgentAction[] Actions { get; internal set; }
+        public string ControllerDecision { get; internal set; } = "";
+        public string ValidationError { get; internal set; } = "";
 
         internal DogAgentDecision(string reply, DogIntent intent, string target, bool isRecall, bool isRefusal = false, string[] steps = null)
         {
@@ -36,7 +49,8 @@ namespace KeepADog.Demo
         public const string RecallExample = "我今天心情不好";
 
         private const int MaxInputLength = 400;
-        private const int HistoryCapacity = 5;
+        private const int HistoryCapacity = 8;
+        private const int HistoryNoteLength = 100;
         private const int MemoryVersion = 1;
         private const int MaxStrength = 3;
         private static readonly TimeSpan RecentWindow = TimeSpan.FromMinutes(3);
@@ -93,6 +107,8 @@ namespace KeepADog.Demo
 
         private bool ActiveTrial => trial != null && DateTime.UtcNow - trial.Time <= RecentWindow;
 
+        public void CancelPendingDecision() => generation++;
+
         public DogAgentDecision Decide(string input)
         {
             generation++;
@@ -104,15 +120,69 @@ namespace KeepADog.Demo
             return DecideAsync(input, "http://127.0.0.1:11434/v1/chat/completions", ollamaModel);
         }
 
-        public async Task<DogAgentDecision> DecideAsync(string input, string endpoint, string model, string apiKey = null)
+        public async Task<DogAgentDecision> DecideAsync(string input, string endpoint, string model, string apiKey = null,
+            string[] localSteps = null, string stateJson = null, Action<string> captureModelJson = null,
+            Action<string> captureModelError = null)
         {
             int requestGeneration = ++generation;
             input = CleanInput(input);
-            Interpretation interpretation = Interpret(input);
-            if (interpretation == null && input.Length > 0 && !string.IsNullOrWhiteSpace(model))
-                interpretation = await DogLanguageModel.InterpretAsync(input, ModelContext(), endpoint, model, apiKey);
+            string modelError = null;
+            Action<string> onModelError = error => { modelError = error; captureModelError?.Invoke(error); };
+            if (DogLanguageModel.HasControllerCatalog(stateJson))
+            {
+                Interpretation controller = null;
+                if (input.Length > 0 && !string.IsNullOrWhiteSpace(model))
+                    controller = await DogLanguageModel.InterpretAsync(input, ModelContext(), endpoint, model, apiKey,
+                        stateJson, captureModelJson, onModelError);
+                if (requestGeneration != generation) return null;
+                if (controller == null)
+                {
+                    string explanation = modelError ?? (string.IsNullOrWhiteSpace(model)
+                        ? "尚未配置语言模型，请检查设置。"
+                        : "模型没有返回有效的动作 JSON，请重试。未执行动作。");
+                    var unavailable = Wait(explanation);
+                    unavailable.Actions = Array.Empty<DogAgentAction>();
+                    unavailable.ControllerDecision = "reply";
+                    unavailable.ValidationError = explanation;
+                    return unavailable;
+                }
+                DogAgentDecision controlled = Process(input, controller);
+                controlled.UsedModel = true;
+                if (!controlled.IsRefusal && controlled.Actions?.Length > 0)
+                    controlled.ModelReply = controller.Reply;
+                RememberReply(controlled);
+                return controlled;
+            }
 
-            return requestGeneration == generation ? Process(input, interpretation) : null;
+            Interpretation local = Interpret(input);
+            Interpretation selected = null;
+            if ((local == null || local.Kind == SpeechKind.Command) && input.Length > 0)
+            {
+                if (Wjy.DogTraining.DogRoutines.Valid(localSteps))
+                    local = new Interpretation(SpeechKind.Sequence, steps: (string[])localSteps.Clone());
+                if (!string.IsNullOrWhiteSpace(model))
+                {
+                    selected = await DogLanguageModel.InterpretAsync(input, ModelContext(), endpoint, model, apiKey, stateJson,
+                        captureModelJson, onModelError);
+                    // Preserve an explicit sequence and keep ordinary movement out of learned conditions.
+                    if (local != null && selected != null && selected.Actions == null && selected.Kind != SpeechKind.Chat)
+                    {
+                        bool movement = selected.Kind == SpeechKind.Command || selected.Kind == SpeechKind.Sequence;
+                        bool keepsSequence = local.Kind != SpeechKind.Sequence ||
+                            (selected.Kind == SpeechKind.Sequence && local.Steps.SequenceEqual(selected.Steps));
+                        if (!movement || !keepsSequence) selected = null;
+                    }
+                }
+            }
+
+            if (requestGeneration != generation) return null;
+            DogAgentDecision decision = Process(input, selected ?? local);
+            decision.UsedModel = selected != null;
+            if (selected != null && !decision.IsRefusal &&
+                (decision.Intent != DogIntent.Wait || decision.Steps != null || decision.Actions?.Length > 0))
+                decision.ModelReply = selected.Reply;
+            if (decision.UsedModel) RememberReply(decision);
+            return decision;
         }
 
         public void ReportExecution(DogAgentDecision decision, bool success)
@@ -195,6 +265,8 @@ namespace KeepADog.Demo
             Interpretation outcome = interpretation ?? Interpret(input);
             if (outcome == null)
                 return Wait("汪？我还没听懂。可以教我坐下、转圈、闻一闻，或叼回毛绒玩具。");
+            if (outcome.Actions != null)
+                return ProcessController(outcome);
 
             switch (outcome.Kind)
             {
@@ -213,6 +285,44 @@ namespace KeepADog.Demo
                     return new DogAgentDecision("麦粒准备试试这几个动作。", DogIntent.Wait, "", false, steps: outcome.Steps);
                 default:
                     return Wait(outcome.Reply);
+            }
+        }
+
+        private DogAgentDecision ProcessController(Interpretation outcome)
+        {
+            DogAgentDecision decision;
+            if (outcome.Actions.Length == 0)
+                decision = Wait(outcome.Reply);
+            else if (outcome.Actions.Length == 1 && TryMapPrimitive(outcome.Actions[0], out DogIntent intent, out string target))
+                decision = outcome.LearningCondition == "owner_sad"
+                    ? StartTrial(intent, target, true, false) : StartCommand(intent, target);
+            else
+            {
+                trial = null;
+                decision = Wait(outcome.Reply);
+            }
+            decision.Actions = outcome.Actions;
+            decision.ControllerDecision = outcome.ControllerDecision;
+            decision.ValidationError = outcome.ValidationError;
+            return decision;
+        }
+
+        private static bool TryMapPrimitive(DogAgentAction action, out DogIntent intent, out string target)
+        {
+            target = "";
+            switch (action.id)
+            {
+                case "sit": intent = DogIntent.Sit; return true;
+                case "crouch": intent = DogIntent.Crouch; return true;
+                case "spin": intent = DogIntent.Spin; return true;
+                case "come": intent = DogIntent.Come; return true;
+                case "paw": intent = DogIntent.Paw; return true;
+                case "bow": intent = DogIntent.Bow; return true;
+                case "pounce": intent = DogIntent.Pounce; return true;
+                case "sniff": intent = DogIntent.Sniff; return true;
+                case "fetch_toy": intent = DogIntent.FetchBall; target = "ball"; return true;
+                case "fetch_lollipop": intent = DogIntent.Fetch; target = Lollipop; return true;
+                default: intent = DogIntent.Wait; return false;
             }
         }
 
@@ -339,9 +449,18 @@ namespace KeepADog.Demo
 
         private void Remember(string note)
         {
+            if (string.IsNullOrWhiteSpace(note)) return;
+            note = Regex.Replace(note, @"\bsk-[A-Za-z0-9_-]{12,}", "[密钥已隐藏]");
+            if (note.Length > HistoryNoteLength) note = note.Substring(0, HistoryNoteLength - 1) + "…";
             PruneHistory();
             if (recent.Count == HistoryCapacity) recent.RemoveAt(0);
             recent.Add(new RecentEvent { Time = DateTime.UtcNow, Text = note });
+        }
+
+        private void RememberReply(DogAgentDecision decision)
+        {
+            string spoken = string.IsNullOrWhiteSpace(decision.ModelReply) ? decision.Reply : decision.ModelReply;
+            if (!string.IsNullOrWhiteSpace(spoken)) Remember("麦粒回应：" + spoken);
         }
 
         private void PruneHistory()
@@ -369,6 +488,7 @@ namespace KeepADog.Demo
                 sadnessTarget = memory.sadStrength > 0 ? memory.sadTarget : "",
                 sadnessStrength = memory.sadStrength,
                 recentEventCount = recent.Count,
+                recentEvents = recent.ConvertAll(entry => entry.Text).ToArray(),
                 currentPractice = ActiveTrial ? trial.Intent.ToString().ToLowerInvariant() : "none",
                 currentPracticeStatus = ActiveTrial ? trial.Outcome.ToString().ToLowerInvariant() : "none"
             };
@@ -456,14 +576,24 @@ namespace KeepADog.Demo
             public readonly string Target;
             public readonly string Reply;
             public readonly string[] Steps;
+            public readonly DogAgentAction[] Actions;
+            public readonly string ControllerDecision;
+            public readonly string ValidationError;
+            public readonly string LearningCondition;
 
-            public Interpretation(SpeechKind kind, DogIntent intent = DogIntent.Wait, string target = "", string reply = "", string[] steps = null)
+            public Interpretation(SpeechKind kind, DogIntent intent = DogIntent.Wait, string target = "", string reply = "",
+                string[] steps = null, DogAgentAction[] actions = null, string controllerDecision = "", string validationError = "",
+                string learningCondition = "none")
             {
                 Kind = kind;
                 Intent = intent;
                 Target = target;
                 Reply = reply;
                 Steps = steps;
+                Actions = actions;
+                ControllerDecision = controllerDecision;
+                ValidationError = validationError;
+                LearningCondition = learningCondition;
             }
         }
 
@@ -502,6 +632,7 @@ namespace KeepADog.Demo
             public string sadnessTarget;
             public int sadnessStrength;
             public int recentEventCount;
+            public string[] recentEvents;
             public string currentPractice;
             public string currentPracticeStatus;
         }

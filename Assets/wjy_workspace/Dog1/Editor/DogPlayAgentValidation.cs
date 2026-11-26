@@ -39,7 +39,7 @@ public static class DogPlayAgentValidation
             CheckRoutines(Path.Combine(fixture, "routines.json"));
             CheckModelParsing();
             CheckClearance();
-            Debug.Log("DOG_PLAY_AGENT_OK: pounce, sniff, reward, save migration, old aliases, routines, negative cues, model action limits and neighborhood clearance.");
+            Debug.Log("DOG_PLAY_AGENT_OK: pounce, sniff, reward, save migration, old aliases, routines, negative cues, ordered and restricted model actions, response status, and neighborhood clearance.");
         }
         catch (Exception error)
         {
@@ -121,19 +121,80 @@ public static class DogPlayAgentValidation
     private static void CheckModelParsing()
     {
         var model = typeof(DogAgent).Assembly.GetType("KeepADog.Demo.DogLanguageModel", true);
-        MethodInfo parse = model.GetMethod("Parse", BindingFlags.Static | BindingFlags.NonPublic);
-        Require(parse != null, "Cannot find model parser");
-        object Decode(string json) => parse.Invoke(null, new object[] { json });
-        object Command(string action, string target) =>
-            Decode("{\"kind\":\"command\",\"action\":\"" + action + "\",\"target\":\"" + target + "\",\"reply\":\"\"}");
-        Require(Command("pounce", "none") != null && Command("sniff", "none") != null,
-            "Model parser did not allow the new grounded gestures");
-        Require(Command("pounce", "owner") == null && Command("burst", "none") == null,
-            "Model parser accepted an unsupported action or target");
-        Require(Decode("{\"kind\":\"sequence\",\"action\":\"none\",\"target\":\"none\",\"reply\":\"\",\"steps\":[\"bow\",\"pounce\",\"sniff\"]}") != null,
-            "Valid model routine did not parse");
-        Require(Decode("{\"kind\":\"sequence\",\"action\":\"none\",\"target\":\"none\",\"reply\":\"\",\"steps\":[\"pounce\",\"burst\"]}") == null,
-            "Model routine accepted a park-only autonomous action");
+        const BindingFlags flags = BindingFlags.Static | BindingFlags.NonPublic;
+        MethodInfo legacy = model.GetMethod("Parse", flags);
+        MethodInfo strict = model.GetMethod("ParseStateResponse", flags);
+        Require(legacy != null && strict != null, "Cannot find both model parsers");
+        object Legacy(string json) => legacy.Invoke(null, new object[] { json });
+        object Decode(string json) => strict.Invoke(null, new object[] { json });
+
+        string withoutStatus = ResponseJson("command", action: "pounce");
+        Require(Legacy(withoutStatus) != null && Decode(withoutStatus) == null,
+            "Only legacy model responses can omit status");
+        Require(Decode(ResponseJson("command", action: "sniff", status: "ready")) != null,
+            "Scene response rejected a ready grounded gesture");
+        Require(Decode(ResponseJson("command", action: "fetch", target: "ball", status: "ready")) != null,
+            "Scene response rejected fetch with a supported target");
+
+        string[] ordered = { "bow", "fetch_toy", "sniff" };
+        object sequence = Decode(ResponseJson("sequence", status: "ready", steps: ordered));
+        string[] parsedSteps = sequence?.GetType().GetField("Steps")?.GetValue(sequence) as string[];
+        Require(parsedSteps?.SequenceEqual(ordered) == true, "Model routine changed the requested order");
+
+        foreach (string[] steps in new[]
+        {
+            new[] { "pounce", "burst" },
+            new[] { "sit" },
+            new[] { "sit", "paw", "sniff", "bow" },
+            new[] { "fetch_toy", "fetch_lollipop" }
+        })
+        {
+            Require(Decode(ResponseJson("sequence", status: "ready", steps: steps)) == null,
+                "Model routine accepted unsupported steps: " + string.Join(", ", steps));
+        }
+
+        foreach (string rejected in new[]
+        {
+            ResponseJson("command", action: "pounce", target: "owner", status: "ready"),
+            ResponseJson("command", action: "sit", target: "", status: "ready"),
+            ResponseJson("command", action: "fetch", target: "shoe", status: "ready"),
+            ResponseJson("command", action: "burst", status: "ready"),
+            ResponseJson("sequence", action: "sit", status: "ready", steps: ordered),
+            ResponseJson("sequence", target: "ball", status: "ready", steps: ordered),
+            ResponseJson("command", action: "sit", status: "ready", steps: ordered),
+            ResponseJson("command", action: "sit", status: "reply"),
+            ResponseJson("command", action: "sit", status: "blocked"),
+            ResponseJson("command", action: "sit", status: "unknown"),
+            ResponseJson("sequence", status: "reply", steps: ordered),
+            ResponseJson("chat", action: "sit", status: "blocked", reply: "这里暂时坐不下。"),
+            ResponseJson("chat", status: "blocked", steps: ordered, reply: "现在不方便。"),
+            ResponseJson("chat", status: "blocked")
+        })
+        {
+            Require(Decode(rejected) == null, "Scene response accepted incompatible fields: " + rejected);
+        }
+
+        const string reason = "现在找不到球。";
+        object blocked = Decode(ResponseJson("chat", status: "blocked", reply: reason));
+        Require(blocked != null &&
+            Equals(blocked.GetType().GetField("Intent")?.GetValue(blocked), DogIntent.Wait) &&
+            Equals(blocked.GetType().GetField("Reply")?.GetValue(blocked), reason) &&
+            blocked.GetType().GetField("Steps")?.GetValue(blocked) == null,
+            "A valid blocked response should retain its explanation and request no action");
+        object oldChat = Decode(ResponseJson("chat", status: "ready", reply: "我听见了。"));
+        Require(oldChat != null && Equals(oldChat.GetType().GetField("Reply")?.GetValue(oldChat), "我听见了。") &&
+            Equals(oldChat.GetType().GetField("Intent")?.GetValue(oldChat), DogIntent.Wait),
+            "An older ready/chat response discarded safe text");
+    }
+
+    private static string ResponseJson(string kind, string action = "none", string target = "none",
+        string status = null, string reply = "", string[] steps = null)
+    {
+        string result = "{\"kind\":\"" + kind + "\",\"action\":\"" + action + "\",\"target\":\"" + target +
+            "\",\"reply\":\"" + reply + "\"";
+        if (status != null) result += ",\"status\":\"" + status + "\"";
+        if (steps != null) result += ",\"steps\":[\"" + string.Join("\",\"", steps) + "\"]";
+        return result + "}";
     }
 
     private static void CheckClearance()

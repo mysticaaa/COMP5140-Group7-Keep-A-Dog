@@ -66,6 +66,15 @@ namespace Wjy.DogTraining
             return true;
         }
 
+        public static string CueName(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input) || input.Length > 180) return null;
+            int separator = input.IndexOfAny(new[] { ':', '：' });
+            if (separator < 0) return null;
+            string name = input.Substring(0, separator).Trim();
+            return ValidName(name) ? name : null;
+        }
+
         public bool Remember(string name, string[] steps)
         {
             if (!ValidName(name) || !Valid(steps)) return false;

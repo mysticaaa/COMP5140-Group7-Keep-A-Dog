@@ -30,6 +30,7 @@ namespace Wjy.DogTraining
         }
         public string StateLabel { get; private set; } = "自由散步";
         public bool IsPerforming { get; private set; }
+        public string LastCompletedAction { get; private set; }
         public string CurrentAction { get; private set; } = "wander";
         public bool Ready { get; private set; }
         private Transform visual, head, pelvis;
@@ -861,6 +862,11 @@ namespace Wjy.DogTraining
         }
         public IEnumerator PerformAction(string action, float hold = -1f)
         {
+            LastCompletedAction = null;
+            if (action == "fetch_lollipop" || action == "fetch_toy") LastFetchSucceeded = false;
+            if (action == "come") LastComeSucceeded = false;
+            if (action == "pounce" || action == "burst" || action == "invite" || action == "sniff") LastPlaySucceeded = false;
+            if (action == "rest" || action == "crouch") LastRestSucceeded = false;
             if (action != "sit" && action != "crouch" && action != "spin" && action != "refuse" &&
                 action != "fetch_lollipop" && action != "fetch_toy" && action != "come" &&
                 action != "paw" && action != "bow" && action != "invite" && action != "rest" && action != "pet" &&
@@ -902,6 +908,8 @@ namespace Wjy.DogTraining
             if (version != actionVersion) yield break;
             yield return new WaitForSeconds(hold < 0f ? resumeDelay : hold);
             if (version != actionVersion) yield break;
+            if (action == "rest" || action == "crouch") LastRestSucceeded = true;
+            LastCompletedAction = action;
             IsPerforming = false; CurrentAction = allowWandering ? "wander" : "idle";
             if (action == "come" && LastComeSucceeded)
             {
@@ -924,6 +932,8 @@ namespace Wjy.DogTraining
 
         internal IEnumerator RestAt(Transform spot, bool house, Transform cushion)
         {
+            LastCompletedAction = null;
+            LastRestSucceeded = false;
             while (Ready && !IsPerforming && IsFinishingIdleAction) yield return null;
             if (!Ready || IsPerforming || spot == null) yield break;
             int version = ++actionVersion;
@@ -995,6 +1005,8 @@ namespace Wjy.DogTraining
             }
             restSpotCrouch = 0f;
             IsPerforming = false;
+            LastRestSucceeded = LastActivitySucceeded;
+            if (LastRestSucceeded) LastCompletedAction = "rest";
             SetWanderingEnabled(allowWandering);
         }
 
@@ -1180,7 +1192,8 @@ namespace Wjy.DogTraining
             }
             if (version != actionVersion) yield break;
             loweringToPickUp = false;
-            if (Vector3.Distance(MuzzleAnchor.position, item.position) > PickupReach ||
+            Vector3 contact = physical != null ? physical.ClosestPoint(MuzzleAnchor.position) : item.position;
+            if (Vector3.Distance(MuzzleAnchor.position, contact) > PickupReach ||
                 (physical != null && !physical.TryHold(DogToyHolder.Dog)))
             {
                 StateLabel = "够不到" + itemName + "，停下来等你";
@@ -1229,9 +1242,7 @@ namespace Wjy.DogTraining
                 {
                     if (user == null) break;
                     if (IsNearOwner()) { TurnTowards(user.position, Time.deltaTime); break; }
-                    Vector3 owner = user.position;
-                    owner.y = transform.position.y;
-                    currentTarget = Vector3.MoveTowards(owner, transform.position, OwnerStandOff);
+                    currentTarget = OwnerApproachTarget();
                 }
 
                 currentTarget.x = Mathf.Clamp(currentTarget.x, -ActionYardLimit, ActionYardLimit);
@@ -1248,6 +1259,27 @@ namespace Wjy.DogTraining
         private bool IsNearOwner()
         {
             return user != null && FlatDistance(transform.position, user.position) <= OwnerStandOff + 0.12f;
+        }
+
+        private Vector3 OwnerApproachTarget()
+        {
+            Vector3 owner = user.position;
+            owner.y = transform.position.y;
+            Vector3 desired = Limit(Vector3.MoveTowards(owner, transform.position, OwnerStandOff));
+            if (FlatDistance(desired, owner) <= OwnerStandOff) return desired;
+
+            Vector3 reachable = Limit(owner);
+            if (FlatDistance(reachable, owner) >= OwnerStandOff) return reachable;
+            // Clamping a radial stand-off to the room can leave it too far from the owner.
+            // Find a reachable point within the same stand-off without widening the success radius.
+            float low = 0f, high = 1f;
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                float middle = (low + high) * .5f;
+                if (FlatDistance(Vector3.Lerp(reachable, desired, middle), owner) <= OwnerStandOff) low = middle;
+                else high = middle;
+            }
+            return Vector3.Lerp(reachable, desired, low);
         }
 
         private static float FlatDistance(Vector3 from, Vector3 to)

@@ -24,6 +24,7 @@ namespace Wjy.DogTraining
         public string ActiveMicrophone { get; private set; } = "尚未选择";
         public float InputLevel { get; private set; }
         public string[] MicrophoneDevices => Microphone.devices;
+        internal string TranscriptLogDirectory { get; set; }
         private AudioClip recording;
         private string recordingDevice;
         private float startedAt, nextMeter;
@@ -32,10 +33,23 @@ namespace Wjy.DogTraining
         private string serviceError = "";
         private UnityWebRequest activeRequest;
         private System.Diagnostics.Process ownedService;
+        private VoiceTranscriptRecord transcriptAttempt;
+        private string transcriptLogFile;
         private readonly float[] meter = new float[256];
         private const int MaxSeconds = 60;
+        private const int MaxTranscriptionAttempts = 2;
         [Serializable] private sealed class Health { public string service; public bool ready; public string error; public string model; }
         [Serializable] private sealed class Transcript { public string text; public string error; }
+        [Serializable]
+        private sealed class VoiceTranscriptRecord
+        {
+            public string timestamp;
+            public string microphone;
+            public string status;
+            public string text;
+            public string detail;
+            public float durationSeconds;
+        }
         private void Awake() { microphoneDevice = PlayerPrefs.GetString("CityDogMicrophone", ""); }
         public void CycleMicrophone()
         {
@@ -66,11 +80,13 @@ namespace Wjy.DogTraining
         public void StartListening()
         {
             if (IsListening || IsFinalizing) return;
+            BeginTranscriptAttempt();
+            LiveText = "";
             if (Microphone.devices.Length == 0) { Fail("没有找到麦克风。请检查设备连接和 Windows 麦克风权限。"); return; }
             if (!ValidEndpoint())
             { Fail("语音地址须为本机 HTTP 或 HTTPS 服务。"); return; }
             // A warm-up health request belongs to this capture until it completes.
-            LiveText = ""; InputLevel = 0;
+            InputLevel = 0;
             recordingDevice = string.IsNullOrWhiteSpace(microphoneDevice) ? null : microphoneDevice;
             if (recordingDevice == null && PreferHeadsetMicrophone)
                 foreach (string name in Microphone.devices)
@@ -80,6 +96,7 @@ namespace Wjy.DogTraining
             if (recordingDevice != null && Array.IndexOf(Microphone.devices, recordingDevice) < 0)
             { Fail("选中的麦克风已断开，请重新选择。"); return; }
             ActiveMicrophone = recordingDevice ?? "Windows 默认麦克风";
+            if (transcriptAttempt != null) transcriptAttempt.microphone = ActiveMicrophone;
             try
             {
                 Microphone.GetDeviceCaps(recordingDevice, out int minimum, out int maximum);
@@ -126,6 +143,8 @@ namespace Wjy.DogTraining
             int frames = Microphone.GetPosition(recordingDevice);
             Microphone.End(recordingDevice);
             var clip = recording; recording = null;
+            if (transcriptAttempt != null)
+                transcriptAttempt.durationSeconds = (float)Mathf.Clamp(frames, 0, clip.samples) / clip.frequency;
             if (frames <= 0 || frames < clip.frequency / 5)
             { Destroy(clip); Fail("录音太短，本轮未发送。请开始录音后说一句完整的话。"); yield break; }
             frames = Mathf.Min(frames, clip.samples);
@@ -195,7 +214,12 @@ namespace Wjy.DogTraining
         {
             try
             {
-                if (ownedService != null && !ownedService.HasExited) return true;
+                if (ownedService != null)
+                {
+                    if (!ownedService.HasExited) return true;
+                    ownedService.Dispose();
+                    ownedService = null;
+                }
                 string folder = Application.isEditor ?
                     Path.Combine(Application.dataPath, "wjy_workspace/Dog2/SpeechService") :
                     Path.GetFullPath(Path.Combine(Application.dataPath, "../SpeechService"));
@@ -222,32 +246,114 @@ namespace Wjy.DogTraining
         }
         private IEnumerator Transcribe(byte[] wav, int current)
         {
-            while (checkingService && current == session) yield return null;
-            if (current != session) yield break;
-            if (!serviceReady) { Fail(serviceError); yield break; }
-            using (var request = new UnityWebRequest(transcriptionEndpoint, "POST"))
+            for (int attempt = 1; attempt <= MaxTranscriptionAttempts; attempt++)
             {
-                request.uploadHandler = new UploadHandlerRaw(wav);
-                request.downloadHandler = new DownloadHandlerBuffer(); request.timeout = 90; request.redirectLimit = 0;
-                request.SetRequestHeader("Content-Type", "audio/wav");
-                activeRequest = request;
-                yield return request.SendWebRequest(); activeRequest = null;
+                while (checkingService && current == session) yield return null;
                 if (current != session) yield break;
-                if (request.result != UnityWebRequest.Result.Success)
-                { serviceReady = false; Fail("本地语音识别失败（HTTP " + request.responseCode + "），本轮未发送；下次录音会重新连接。"); yield break; }
-                Transcript result = null;
-                try { result = JsonUtility.FromJson<Transcript>(request.downloadHandler.text); } catch (Exception) { }
-                LiveText = result != null ? (result.text ?? "").Trim() : "";
-                IsFinalizing = false;
-                if (string.IsNullOrWhiteSpace(LiveText))
-                { Status = "未识别到人声或文字，本轮未发送。请检查麦克风选择及输入音量。"; yield break; }
-                Status = "识别完成";
-                TranscriptReady?.Invoke(LiveText);
+                if (!serviceReady) { Fail(serviceError); yield break; }
+
+                using (var request = new UnityWebRequest(transcriptionEndpoint, "POST"))
+                {
+                    request.uploadHandler = new UploadHandlerRaw(wav);
+                    request.downloadHandler = new DownloadHandlerBuffer();
+                    request.timeout = 90;
+                    request.redirectLimit = 0;
+                    request.SetRequestHeader("Content-Type", "audio/wav");
+                    activeRequest = request;
+                    yield return request.SendWebRequest();
+                    activeRequest = null;
+                    if (current != session) yield break;
+                    if (request.result == UnityWebRequest.Result.Success)
+                    {
+                        ReceiveTranscript(request.downloadHandler.text);
+                        yield break;
+                    }
+
+                    bool disconnected = request.result == UnityWebRequest.Result.ConnectionError ||
+                        request.responseCode == 503;
+                    if (disconnected)
+                    {
+                        serviceReady = false;
+                        ServiceStatus = "本地语音连接中断";
+                    }
+                    string detail = request.responseCode == 0 ? "未收到 HTTP 响应" : "HTTP " + request.responseCode;
+                    if (!string.IsNullOrWhiteSpace(request.error)) detail += " · " + request.error;
+                    if (!disconnected || attempt == MaxTranscriptionAttempts)
+                    {
+                        Fail("本地语音识别失败（" + detail + "）。本轮语音未提交。");
+                        yield break;
+                    }
+                    Debug.Log("[Dog2 Speech] " + detail + "。重连后重试当前录音。");
+                }
+
+                Status = "本地语音连接中断，正在重连并保留本轮录音……";
+                WarmUp();
             }
         }
+
+        private void ReceiveTranscript(string json)
+        {
+            Transcript result = null;
+            try { result = JsonUtility.FromJson<Transcript>(json); } catch (Exception) { }
+            if (result == null || result.text == null || !string.IsNullOrEmpty(result.error))
+            {
+                Fail("本地语音服务没有返回有效的转写结果。");
+                return;
+            }
+            LiveText = result.text.Trim();
+            IsFinalizing = false;
+            if (string.IsNullOrWhiteSpace(LiveText))
+            {
+                Status = "未识别到人声或文字，本轮未发送。请检查麦克风选择及输入音量。";
+                FinishTranscriptAttempt("no_speech", "", Status);
+                return;
+            }
+            Status = "识别完成";
+            FinishTranscriptAttempt("recognized", result.text, "");
+            TranscriptReady?.Invoke(LiveText);
+        }
+
+        private void BeginTranscriptAttempt()
+        {
+            if (string.IsNullOrEmpty(TranscriptLogDirectory)) return;
+            var timestamp = DateTimeOffset.Now;
+            transcriptAttempt = new VoiceTranscriptRecord
+            {
+                timestamp = timestamp.ToString("O"),
+                microphone = SelectedMicrophoneLabel
+            };
+            if (transcriptLogFile == null)
+            {
+                string name = timestamp.ToString("yyyyMMdd-HHmmss") + "-" + Guid.NewGuid().ToString("N") + ".jsonl";
+                transcriptLogFile = Path.Combine(TranscriptLogDirectory, name);
+            }
+        }
+
+        private void FinishTranscriptAttempt(string status, string text, string detail)
+        {
+            var attempt = transcriptAttempt;
+            transcriptAttempt = null;
+            if (attempt == null) return;
+            attempt.status = status;
+            attempt.text = text;
+            attempt.detail = detail;
+            if (recording != null)
+                attempt.durationSeconds = Mathf.Clamp(Time.realtimeSinceStartup - startedAt, 0, MaxSeconds);
+            try
+            {
+                Directory.CreateDirectory(TranscriptLogDirectory);
+                File.AppendAllText(transcriptLogFile, JsonUtility.ToJson(attempt) + "\n");
+            }
+            catch (Exception error) when (error is IOException || error is UnauthorizedAccessException)
+            {
+                Debug.LogWarning("[Dog2 Speech] 无法写入本机语音记录：" + error.Message);
+            }
+        }
+
         public void Cancel()
         {
             bool hadSpeech = IsListening || IsFinalizing;
+            FinishTranscriptAttempt("cancelled", "", "本轮语音已取消。");
             session++;
             if (activeRequest != null) activeRequest.Abort(); activeRequest = null;
             StopAllCoroutines(); checkingService = false;
@@ -257,7 +363,9 @@ namespace Wjy.DogTraining
         }
         private void Fail(string message)
         {
-            Cancel(); Status = string.IsNullOrEmpty(message) ? "本地语音识别未就绪。" : message;
+            string error = string.IsNullOrEmpty(message) ? "本地语音识别未就绪。" : message;
+            FinishTranscriptAttempt("failed", "", error);
+            Cancel(); Status = error;
             Debug.LogWarning("[Dog2 Speech] " + Status);
         }
         private void OnDisable() { Cancel(); }

@@ -31,7 +31,7 @@ namespace Wjy.DogTraining
         private string StoryPrompt => !started ? "挑一只狗狗，再一起看看新家。" :
             HasPlayInvitation ? "麦粒伏低前身，看了看玩具，又看了看你。你想怎么回应它？" :
             HasQuietStory ? "麦粒自己找了个地方歇下。你可以过去陪它，也可以给它留点空间。" :
-            life.ChapterFinished ? "和麦粒想想明天。你想把哪段时间留给它？" : life.CurrentChapter.Description;
+            life.ChapterFinished ? "第一周结束了。继续照顾麦粒、探索场景，练习你们自己的约定吧。" : life.CurrentChapter.Description;
 
         private IReadOnlyList<string> StoryChoiceLabels => !Ready ? Array.Empty<string>() :
             HasPlayInvitation ? InvitationOptions : HasQuietStory ? QuietOptions : Array.Empty<string>();
@@ -70,12 +70,27 @@ namespace Wjy.DogTraining
             storyResponseUntil = Time.unscaledTime + 6f;
             if (option == 0)
             {
-                dog.AttendToUser(2.6f);
-                reply = "麦粒听见你的声音，抬头看了看，又接着休息。";
+                StartCoroutine(RestTogetherHere());
             }
             else
             {
                 reply = "麦粒眯着眼。你把这个角落留给了它。";
+                nextAutonomy = Time.unscaledTime + 24f;
+            }
+        }
+
+        private IEnumerator RestTogetherHere()
+        {
+            busy = true;
+            try
+            {
+                reply = "你轻声陪着麦粒，它就在你身边趴下歇一会儿。";
+                yield return dog.PerformAction("rest", .35f);
+                RecordRestCompletion();
+            }
+            finally
+            {
+                busy = false;
                 nextAutonomy = Time.unscaledTime + 24f;
             }
         }
@@ -90,12 +105,14 @@ namespace Wjy.DogTraining
 
         private IEnumerator ResolveInvitationSpeech(string input)
         {
+            var trace = activeCommandTrace;
             bool offersPlay = input.Contains("玩") || input.Contains("球");
             bool offersQuiet = input.Contains("安静") || input.Contains("休息");
             bool asksPreference = (offersPlay && offersQuiet) || input.Contains("还是") || input.Contains("你想");
             string choice = input.Contains("等一会儿") || input.Contains("稍后") || input.Contains("不玩") ? "later" :
                 !asksPreference && offersQuiet ? "quiet" : CanPlayNow() ? "play" : "quiet";
             string line = "";
+            bool usedModel = false;
             if (useModel && asksPreference && !string.IsNullOrWhiteSpace(model))
             {
                 var scene = CapturePerception();
@@ -110,44 +127,70 @@ namespace Wjy.DogTraining
                 reply = "麦粒看了看球，又听了听你。";
                 storyResponseUntil = Time.unscaledTime + 14f;
                 string key = string.IsNullOrWhiteSpace(sessionKey) ? apiKey : sessionKey;
-                var request = DogLanguageModel.RequestJsonAsync(InvitationInstructions, JsonUtility.ToJson(context), endpoint, model, key);
+                string stateJson = JsonUtility.ToJson(context);
+                if (trace != null)
+                {
+                    trace.State = stateJson;
+                    trace.Source = "判断中";
+                }
+                var request = DogLanguageModel.RequestJsonAsync(InvitationInstructions, stateJson, endpoint, model, key);
                 while (!request.IsCompleted) yield return null;
-                var decision = request.Status == TaskStatus.RanToCompletion ? ParseInvitation(request.Result, context.candidates) : null;
+                string rawJson = request.Status == TaskStatus.RanToCompletion ? request.Result : null;
+                TraceModelResponse(trace, rawJson);
+                var decision = ParseInvitation(rawJson, context.candidates);
                 if (decision != null && HasPlayInvitation)
                 {
                     choice = decision.activity;
                     line = decision.reply;
+                    usedModel = true;
                 }
             }
-            if (choice == "play" && !CanPlayNow()) { choice = "quiet"; line = ""; }
-            yield return PerformInvitationChoice(choice, line);
+            yield return PerformInvitationChoice(choice, line, trace, usedModel);
         }
 
-        private bool CanPlayNow() => life.GetBlockReason(DogCareAction.Play).Length == 0 && dog.CanUsePhysicalBall;
+        private bool CanPlayNow() => life.GetBlockReason(DogCareAction.Play).Length == 0 &&
+            CaptureCommandState().BlockReason("fetch_toy") == null;
 
-        private IEnumerator PerformInvitationChoice(string choice, string modelLine)
+        private IEnumerator PerformInvitationChoice(string choice, string modelLine,
+            CommandTrace trace = null, bool usedModel = false)
         {
+            if (choice == "play" && !CanPlayNow())
+            {
+                string reason = CaptureCommandState().BlockReason("fetch_toy") ?? life.GetBlockReason(DogCareAction.Play);
+                reply = string.IsNullOrEmpty(reason) ? "麦粒现在不适合玩球，先照顾一下它吧。" : reason;
+                trace?.Actions.Add("fetch_toy · 场景校验阻塞 · " + reply);
+                Notify(reply);
+                yield break;
+            }
+            TraceModelChoice(trace, usedModel);
             ClearTrickReward();
             quietStoryUntil = 0f;
             storyResponseUntil = Time.unscaledTime + 6f;
             busy = true;
             try
             {
-                if (choice == "play" && CanPlayNow())
+                if (choice == "play")
                 {
+                    trace?.Actions.Add("fetch_toy · 开始");
                     yield return Care(DogCareAction.Play);
-                    if (dog.LastFetchSucceeded && modelLine.Length > 0) reply = modelLine + " · " + reply;
+                    bool fetched = DogActionSelection.Succeeded(dog, "fetch_toy");
+                    trace?.Actions.Add(fetched ? "fetch_toy · 完成" : "fetch_toy · 未完成");
+                    if (fetched && modelLine.Length > 0) reply = modelLine + " · " + reply;
                 }
                 else if (choice == "later")
                 {
+                    trace?.Actions.Add("later · 等一会儿再玩");
                     reply = modelLine.Length > 0 ? modelLine : "麦粒收起玩具，先自己待一会儿。";
                     dog.AttendToUser(2f);
                 }
                 else
                 {
+                    string restAction = HomeRestSpot(nextRestInHouse) == null ? "rest" : "restSpot";
+                    trace?.Actions.Add(restAction + " · 开始");
                     reply = modelLine.Length > 0 ? modelLine : "麦粒在你旁边找了个位置，安静地趴下。";
                     yield return RestWithFurniture(nextRestInHouse);
-                    if (life.GetBlockReason(DogCareAction.Rest).Length == 0) FinishCare(DogCareAction.Rest, dog.LastActivitySucceeded || HomeRestSpot(false) == null);
+                    bool rested = dog.LastRestSucceeded;
+                    trace?.Actions.Add(restAction + (rested ? " · 完成" : " · 未完成"));
                 }
             }
             finally

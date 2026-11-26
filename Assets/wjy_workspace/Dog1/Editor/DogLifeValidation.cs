@@ -107,14 +107,14 @@ public static class DogLifeValidation
         Require(profile.WasteCount == 0, "Cleanup failed");
 
         camera.GetComponent<Dog1PlayerView>().Place(area.PlayerStart);
-        Require((bool)Call("Submit", "晚安：坐下、抬右爪、拜一拜"), "Sequence input rejected");
+        Require((bool)Call("SubmitPracticeCue", "晚安：坐下、抬右爪、拜一拜"), "Sequence input rejected");
         while (!(bool)Property("WaitingForPlayer")) yield return null;
         Require((bool)Property("CanRewardTrick"), "Sequence did not complete");
         Call("ApplyFeedback", true);
         var folder = Environment.GetEnvironmentVariable("KEEP_A_DOG_TEST_SAVES");
         var reloaded = new DogRoutines(Path.Combine(folder, "dog-routine.json"));
         Require(reloaded.Recall("晚安")?.Length == 3, "Named sequence did not persist");
-        Require((bool)Call("Submit", "晚安"), "Saved cue was not accepted");
+        Require((bool)Call("SubmitPracticeCue", "晚安"), "Saved cue was not accepted");
         while (!(bool)Property("WaitingForPlayer")) yield return null;
         Require((bool)Property("CanRewardTrick"), "Recalling the named cue did not finish all three movements");
         Call("ApplyFeedback", false);

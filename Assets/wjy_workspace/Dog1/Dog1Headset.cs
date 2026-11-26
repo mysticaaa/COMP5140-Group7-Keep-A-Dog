@@ -226,10 +226,11 @@ namespace Wjy.DogTraining
             xrReply.text = !string.IsNullOrEmpty(hint) ? hint + "\n" + response :
                 !string.IsNullOrEmpty(purpose) ? purpose + "\n" + response : response;
             xrVoice.text = VoiceListening ? "正在听，松开 A 发送。音量 " + Mathf.RoundToInt(speech.InputLevel*100) + "%"
-                : VoiceFinalizing ? speech.Status : (string.IsNullOrEmpty(VoiceTranscript) ? speech.Status : "你说  " + VoiceTranscript);
-            xrTalkLabel.text = VoiceListening ? "结束录音 · A" : VoiceFinalizing ? "正在识别" : "按住 A 说话";
+                : VoiceFinalizing ? VoiceStatus : (string.IsNullOrEmpty(VoiceTranscript) ? VoiceStatus : "你说  " + VoiceTranscript);
+            xrTalkLabel.text = VoiceListening ? "结束录音 · A" : VoiceFinalizing ? "正在识别" :
+                VoicePending ? "等麦粒做完动作" : "按住 A 说话";
             xrTalkButton.interactable = VoiceListening || VoiceAvailable;
-            xrCancelButton.interactable = VoiceListening || VoiceFinalizing;
+            xrCancelButton.interactable = VoiceInteractionActive;
             xrInputTrack.enabled = xrInputFill.enabled = VoiceListening;
             xrInputFill.rectTransform.sizeDelta = new Vector2(Mathf.Clamp01(speech.InputLevel * 4f) * 748, 4);
             if (xrTab == 0 && xrStoryHeading != null) RefreshHeadsetStory();
@@ -249,15 +250,24 @@ namespace Wjy.DogTraining
             else if (xrTab == 1)
             {
                 var care = new[] {DogCareAction.Feed,DogCareAction.Water,DogCareAction.Walk,DogCareAction.Clean,DogCareAction.Play,DogCareAction.Rest};
-                for(int i=0;i<care.Length;i++) { var a=care[i]; PageButton(DogLifeProgress.GetActionName(a),i,()=>StartCare(a),()=>Ready && !VoiceListening && !VoiceFinalizing); }
+                for(int i=0;i<care.Length;i++)
+                {
+                    var a=care[i];
+                    if (a == DogCareAction.Walk)
+                        PageButton(DogLifeProgress.GetActionName(a), i,
+                            () => { if (walking) CancelWalk(); else StartCare(a); },
+                            () => started && !pause && !choosingBreed && !VoiceListening && !VoiceFinalizing && (walking || Ready),
+                            () => walking ? "取消这次遛弯" : DogLifeProgress.GetActionName(a));
+                    else PageButton(DogLifeProgress.GetActionName(a),i,()=>StartCare(a),()=>Ready && !VoiceListening && !VoiceFinalizing);
+                }
                 XrText(xrPage, life.WellbeingNote, new Vector2(0,251), new Vector2(748,52), 25);
                 XrText(xrPage, "看向食水碗，按右握把也能添上。靠近它，轻轻移动手柄就能抚摸。",
                     new Vector2(0,7), new Vector2(748,68), 24);
             }
             else if (xrTab == 2)
             {
-                string[] commands={"坐下","趴下","抬右爪","转圈","拜一拜","把玩具拿来"};
-                for(int i=0;i<commands.Length;i++) {string command=commands[i]; PageButton(command,i,()=>Submit(command),()=>Ready);}
+                string[] commands={"坐下","趴下","抬右爪","转圈","伏身邀玩","把玩具拿来"};
+                for(int i=0;i<commands.Length;i++) {string command=commands[i]; PageButton(command,i,()=>SubmitPracticeCue(command),()=>Ready);}
                 XrText(xrPage, "等它做完，再表扬。也可以按住 A 说出你自己的口令。",
                     new Vector2(0,251), new Vector2(748,49), 25);
                 StoryQuickButton("真棒 · 奖励", 0, () => ApplyFeedback(true), () => Ready && (CanRewardTrick || agent.CanReward));
@@ -333,7 +343,7 @@ namespace Wjy.DogTraining
                 label.resizeTextMaxSize = 25;
                 xrStoryOptionLabels[i] = label;
             }
-            StoryQuickButton("叫它过来", 0, () => Submit("过来"), () => Ready);
+            StoryQuickButton("叫它过来", 0, () => SubmitPracticeCue("过来"), () => Ready);
             StoryQuickButton("真棒 · 奖励", 1, () => ApplyFeedback(true), () => Ready && (CanRewardTrick || agent.CanReward));
             StoryQuickButton(pause ? "继续陪伴" : "暂停", 2, () =>
             {
@@ -527,10 +537,25 @@ namespace Wjy.DogTraining
             HeadsetRig.Origin.position+=apartmentHead.position-head.position;
             return result;
         }
-        private void PageButton(string text,int slot,Action action,Func<bool> enabled=null)
+        private void PageButton(string text,int slot,Action action,Func<bool> enabled=null,Func<string> caption=null)
         {
             var b=XrButton(xrPage,text,new Vector2((slot%3)*252,168-(slot/3)*80),new Vector2(244,72),action);
-            if(enabled!=null){Action update=()=>b.interactable=enabled();xrBindings.Add(update);update();}
+            if (enabled != null || caption != null)
+            {
+                Text label = caption == null ? null : b.GetComponentInChildren<Text>();
+                Action update = () =>
+                {
+                    if (enabled != null) b.interactable = enabled();
+                    if (caption != null)
+                    {
+                        string current = caption();
+                        b.gameObject.name = current;
+                        if (label != null) label.text = current;
+                    }
+                };
+                xrBindings.Add(update);
+                update();
+            }
         }
         private static GameObject XrObject(Transform parent,string name,Vector2 at,Vector2 size,Type type)
         {

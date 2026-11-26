@@ -108,6 +108,13 @@ namespace Wjy.DogTraining
 
         public bool CanPlayBurst() => FindBurstDirection() != 0;
 
+        internal bool CanPounce()
+        {
+            Vector3 ahead = transform.forward;
+            return IsPlaySpaceClear(transform.position - ahead * .27f, .26f) &&
+                IsPlaySpaceClear(transform.position + ahead * .47f, .31f);
+        }
+
         private bool BeginPlayMotion(string action)
         {
             LastPlaySucceeded = false;
@@ -121,10 +128,7 @@ namespace Wjy.DogTraining
                 return burstDirection != 0;
             }
 
-            Vector3 ahead = transform.forward;
-            if (!IsPlaySpaceClear(transform.position - ahead * .27f, .26f) ||
-                !IsPlaySpaceClear(transform.position + ahead * .47f, .31f))
-                return false;
+            if (!CanPounce()) return false;
             foreach (Foot foot in feet) foot.PlayStart = foot.Contact;
             return true;
         }

@@ -34,7 +34,7 @@ namespace Wjy.DogTraining
         private readonly List<Texture2D> hudTextures = new List<Texture2D>();
         private Vector2 scroll;
         private bool queuedVoiceStart, queuedVoiceStop, queuedVoiceCancel;
-        private bool showControls, journalOpen = true, chapterOpen = true, memoryOpen;
+        private bool showControls, journalOpen = true, chapterOpen = true, memoryOpen, deepSeekTraceOpen;
         private int pointerVoiceControl;
         private bool IsTextEntryFocused { get; set; }
         private bool showDeveloperPurpose;
@@ -359,11 +359,11 @@ namespace Wjy.DogTraining
             float subtitleX = leftBound + (openSpace - subtitleWidth) * 0.5f;
 
             string heard = VoiceTranscript;
-            bool capturing = VoiceListening || VoiceFinalizing;
+            bool capturing = VoiceInteractionActive;
             string line = VoiceListening ? (pointerVoiceControl != 0 ? "正在听你说话，松开鼠标即可发送。" : "正在听你说话，松开 V 即可发送。")
-                : VoiceFinalizing ? "正在识别…" : reply;
+                : capturing ? VoiceStatus : reply;
             if(!capturing && showDeveloperPurpose) line = "当前动作：" + DeveloperDogAction + "\n" + line;
-            string attribution = capturing ? (VoiceListening ? "麦克风" : "语音")
+            string attribution = capturing ? (VoicePending ? "你说  " + heard : VoiceListening ? "麦克风" : "语音")
                 : !string.IsNullOrEmpty(heard) && caption == "你 · " + heard ? "你说  " + heard : caption;
             float padding = 14f;
             float textWidth = subtitleWidth - 2 * padding;
@@ -438,8 +438,8 @@ namespace Wjy.DogTraining
                 bool enabled = GUI.enabled;
                 GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
                 GUILayout.BeginHorizontal();
-                if (GUILayout.Button("去狗窝趴下", button)) StartCoroutine(RestWithFurniture(true));
-                if (GUILayout.Button("去软垫趴下", button)) StartCoroutine(RestWithFurniture(false));
+                if (GUILayout.Button("回狗屋休息", button)) StartCoroutine(RestWithFurniture(true));
+                if (GUILayout.Button("去软垫休息", button)) StartCoroutine(RestWithFurniture(false));
                 GUILayout.EndHorizontal();
                 GUI.enabled = enabled;
             }
@@ -467,7 +467,7 @@ namespace Wjy.DogTraining
             GUI.enabled = before && Ready;
             float cooldown = life.GetCooldownRemaining(action);
             string label = DogLifeProgress.GetActionName(action);
-            if (cooldown > 0f) label += "  " + Mathf.CeilToInt(cooldown) + "秒";
+            if (cooldown > 0f) label += " · 奖励 " + Mathf.CeilToInt(cooldown) + "秒";
             if (GUILayout.Button(label, button, GUILayout.ExpandWidth(true))) StartCare(action);
             GUI.enabled = before;
         }
@@ -492,11 +492,18 @@ namespace Wjy.DogTraining
 
         private void DrawInteraction()
         {
+            GUILayout.BeginHorizontal();
             GUILayout.Label("跟麦粒说话", heading);
+            if (GUILayout.Button(deepSeekTraceOpen ? "收起 DeepSeek 调试" : "DeepSeek 调试",
+                deepSeekTraceOpen ? selected : button, GUILayout.Width(145)))
+                deepSeekTraceOpen = !deepSeekTraceOpen;
+            GUILayout.EndHorizontal();
             DrawVoiceControl();
             GUILayout.Space(4);
+            if (deepSeekTraceOpen)
+                GUILayout.Label("在下方输入测试口令，也可以按住说话。", small);
             bool enabled = GUI.enabled;
-            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
+            GUI.enabled = enabled && CanSubmitInput;
             GUILayout.BeginHorizontal();
             GUI.SetNextControlName("Conversation");
             message = GUILayout.TextField(message, 180, textField);
@@ -510,6 +517,13 @@ namespace Wjy.DogTraining
                 Event.current.Use();
             }
 
+            if (deepSeekTraceOpen)
+            {
+                GUI.enabled = enabled;
+                DrawDeepSeekTrace();
+                return;
+            }
+
             GUILayout.Space(7);
             GUILayout.Label("练习口令", heading);
             GUILayout.BeginHorizontal();
@@ -521,10 +535,10 @@ namespace Wjy.DogTraining
             GUILayout.BeginHorizontal();
             Cue("轻扑一下"); Cue("闻一闻");
             GUILayout.EndHorizontal();
-            if (GUILayout.Button("教它「晚安」动作串", button)) Submit("晚安：坐下、抬右爪、拜一拜");
+            if (GUILayout.Button("教它「打招呼」动作串", button)) SubmitPracticeCue("打招呼：坐下、抬右爪、伏身邀玩");
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("教它叼毛绒玩具", button)) Submit(KeepADog.Demo.DogAgent.TeachExample);
-            if (GUILayout.Button("我心情不好", button)) Submit("我心情不好");
+            if (GUILayout.Button("教它叼毛绒玩具", button)) SubmitPracticeCue(KeepADog.Demo.DogAgent.TeachExample);
+            if (GUILayout.Button("我心情不好", button)) SubmitPracticeCue("我心情不好");
             GUILayout.EndHorizontal();
             GUILayout.Space(4);
             GUILayout.BeginHorizontal();
@@ -547,6 +561,29 @@ namespace Wjy.DogTraining
             GUILayout.Label(agent.ShortTermSummary, small);
         }
 
+        private void DrawDeepSeekTrace()
+        {
+            GUILayout.Space(7);
+            GUILayout.Label("输入、模型返回与动作执行", heading);
+            if (!useModel || string.IsNullOrWhiteSpace(model))
+                GUILayout.Label("请在「设置」启用可选模型并填写 DeepSeek 配置。", small);
+
+            string trace = DeepSeekTraceText;
+            if (HasPendingCommands)
+                GUILayout.Label("待处理口令 · 最新优先\n" + PendingCommandsText, small);
+            if (!string.IsNullOrEmpty(ActionPlanQueueText))
+                GUILayout.Label("待执行动作\n" + ActionPlanQueueText, small);
+            if (string.IsNullOrWhiteSpace(trace))
+            {
+                GUILayout.Label("发出一条口令后，这里会显示处理过程。", small);
+                return;
+            }
+
+            if (GUILayout.Button("复制调试记录", button))
+                GUIUtility.systemCopyBuffer = trace;
+            GUILayout.Label(trace, small);
+        }
+
         private void DrawVoiceControl()
         {
             Rect area = GUILayoutUtility.GetRect(1, 44, GUILayout.ExpandWidth(true));
@@ -554,15 +591,37 @@ namespace Wjy.DogTraining
             if (VoiceListening)
                 DrawBar(speech != null ? Mathf.Clamp01(speech.InputLevel * 4f) : 0f, Clay, 4f);
             if (!string.IsNullOrWhiteSpace(VoiceStatus)) GUILayout.Label(VoiceStatus, small);
-            if ((VoiceListening || VoiceFinalizing) && GUILayout.Button("取消这句", button))
+            if (!string.IsNullOrWhiteSpace(VoiceTranscript)) GUILayout.Label("你说 · " + VoiceTranscript, small);
+            if (VoiceInteractionActive && GUILayout.Button("取消这句", button))
                 queuedVoiceCancel = true;
+            if (GUILayout.Button("打开本机语音记录", button))
+                OpenVoiceTranscripts();
+        }
+
+        private void OpenVoiceTranscripts()
+        {
+            string directory = speech?.TranscriptLogDirectory;
+            if (!System.IO.Directory.Exists(directory))
+            {
+                Notify("还没有保存过语音记录。");
+                return;
+            }
+            try
+            {
+                using (var handle = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(directory)
+                    { UseShellExecute = true })) { }
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                Notify("无法打开语音记录文件夹。");
+            }
         }
 
         private void DrawPushToTalk(Rect area)
         {
             Event evt = Event.current;
             int id = GUIUtility.GetControlID(FocusType.Passive, area);
-            bool canBegin = GUI.enabled && VoiceAvailable && Ready && !VoiceFinalizing && !VoiceListening;
+            bool canBegin = GUI.enabled && VoiceAvailable;
             switch (evt.GetTypeForControl(id))
             {
                 case EventType.MouseDown:
@@ -580,7 +639,8 @@ namespace Wjy.DogTraining
                     Box(area, surface, 7f);
                     DrawMicrophone(new Vector2(area.x + 19, area.center.y), LightInk);
                     GUI.Label(new Rect(area.x + 38, area.y, area.width - 44, area.height),
-                        VoiceListening ? "正在录音" : VoiceFinalizing ? "正在识别" : "按住说话   [V]", speechLabel);
+                        VoiceListening ? "正在录音" : VoiceFinalizing ? "正在识别" :
+                        VoicePending ? "等麦粒做完动作" : "按住说话   [V]", speechLabel);
                     break;
             }
         }
@@ -596,7 +656,7 @@ namespace Wjy.DogTraining
 
         private void Cue(string cue)
         {
-            if (GUILayout.Button(cue, button, GUILayout.ExpandWidth(true))) Submit(cue);
+            if (GUILayout.Button(cue, button, GUILayout.ExpandWidth(true))) SubmitPracticeCue(cue);
         }
 
         private void SendField()
@@ -677,7 +737,7 @@ namespace Wjy.DogTraining
                 if (GUILayout.Button("连接 / 重连头显 · F9", button)) HeadsetRig.RetryXR();
             }
             if (!string.IsNullOrWhiteSpace(VoiceStatus)) GUILayout.Label(VoiceStatus, small);
-            GUI.enabled = enabled && Ready && !VoiceListening && !VoiceFinalizing;
+            GUI.enabled = enabled && activeCommandTrace == null && !VoiceListening && !VoiceFinalizing;
             if (GUILayout.Button(useModel ? "停用可选模型" : "启用可选模型", button)) useModel = !useModel;
             if (useModel)
             {
@@ -688,9 +748,12 @@ namespace Wjy.DogTraining
                 GUILayout.Label("模型名", small);
                 GUI.SetNextControlName("ModelName");
                 model = GUILayout.TextField(model ?? "", 160, textField);
-                GUILayout.Label("本次运行的 API Key", small);
+                GUILayout.Label("API Key", small);
                 GUI.SetNextControlName("ModelKey");
                 sessionKey = GUILayout.PasswordField(sessionKey, '*', 512, textField);
+                if (GUILayout.Button("加密保存到本机", button)) SaveModelCredential();
+                if (!string.IsNullOrEmpty(credentialNotice)) GUILayout.Label(credentialNotice, small);
+                GUILayout.Label("保存后可在下次运行时恢复；密钥按接口隔离。", small);
                 if (GUILayout.Button("使用本机 Ollama 地址", button))
                 {
                     endpoint = "http://127.0.0.1:11434/v1/chat/completions";

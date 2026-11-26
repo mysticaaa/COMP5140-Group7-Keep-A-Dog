@@ -118,3 +118,7 @@ InitTestScene*.unity*
 .env
 .env.*
 !.env.example
+
+# Local one-off editor diagnostics; credentials must stay on this computer.
+/Assets/wjy_workspace/Dog1/Editor/LiveAgentCheck.cs
+/Assets/wjy_workspace/Dog1/Editor/LiveAgentCheck.cs.meta

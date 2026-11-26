@@ -5,6 +5,21 @@ namespace Wjy.DogTraining
 {
     public sealed partial class DogCompanion
     {
+        public bool LastRestSucceeded { get; private set; }
+
+        public void HoldForInvitation(float seconds = 5.5f)
+        {
+            if (!Ready || IsPerforming) return;
+            float duration = Mathf.Clamp(seconds, 0f, 12f);
+            StateLabel = "望着你，等你回应";
+            pauseUntil = Time.time + duration;
+            nextApproach = pauseUntil + 5f;
+            target = transform.position;
+            approaching = false;
+            chooseAfterPause = true;
+            AttendToUser(duration);
+        }
+
         private IEnumerator RestInsideHouse(Transform spot, int version)
         {
             Vector3 outside = transform.position;

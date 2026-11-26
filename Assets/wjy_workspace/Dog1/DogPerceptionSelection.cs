@@ -81,7 +81,8 @@ namespace Wjy.DogTraining
         }
 
         public static async Task<DogPerceptionChoice> SelectAsync(DogSceneObservation observation,
-            string endpoint, string model, string apiKey = null, string utterance = "")
+            string endpoint, string model, string apiKey = null, string utterance = "",
+            Action<string> traceJSON = null)
         {
             DogPerceptionChoice local = SelectLocal(observation);
             if (local.ActionId.Length == 0 || string.IsNullOrWhiteSpace(model)) return local;
@@ -89,6 +90,7 @@ namespace Wjy.DogTraining
             if (utterance.Length > 240) utterance = utterance.Substring(0, 240);
             var context = new SelectionContext { observation = observation, playerSentence = utterance };
             string content = await DogLanguageModel.RequestJsonAsync(Instructions, JsonUtility.ToJson(context), endpoint, model, apiKey);
+            traceJSON?.Invoke(content);
             // A completed network request never grants permission to act on old scene measurements.
             if (!CanOffer(observation)) return None("场景观察已过期，请重新观察");
             DogPerceptionChoice selected = Parse(content, observation);

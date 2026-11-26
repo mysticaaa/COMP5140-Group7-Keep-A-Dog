@@ -125,12 +125,31 @@ public static class Dog1HeadsetValidation
         float voiceDeadline=Time.realtimeSinceStartup+45;
         while(!(bool)Get(speech,"serviceReady")&&Time.realtimeSinceStartup<voiceDeadline)yield return null;
         Require((bool)Get(speech,"serviceReady"),"local speech service prewarmed and verified");
+        string commandOrigin = Environment.GetEnvironmentVariable("CITYDOG_AGENT_FIXTURE_ORIGIN");
+        if (Uri.TryCreate(commandOrigin, UriKind.Absolute, out var commandFixture) && commandFixture.IsLoopback)
+        {
+            Set(trainer,"useModel",true);
+            Set(trainer,"sessionKey","");
+            Set(trainer,"apiKey","");
+            trainer.endpoint = new Uri(commandFixture,"headset-sit").AbsoluteUri;
+            trainer.model = "citydog-headset-fixture";
+        }
         byte[] wav=File.ReadAllBytes(Path.Combine(Application.dataPath,"wjy_workspace/Dog2/SpeechService/Tests~/sit.wav"));
         var transcribe=(IEnumerator)Call(speech,"Transcribe",wav,(int)Get(speech,"session"));
         yield return trainer.StartCoroutine(transcribe);
         Require(!string.IsNullOrEmpty(speech.LiveText)&&speech.LiveText.Contains("坐"),"real Chinese WAV transcribes through Unity HTTP client");
         Require(((string)Get(trainer,"caption")).Contains("坐"),"speech transcript reaches same Dog1 Agent");
         while((bool)Get(trainer,"busy"))yield return null;
+        if (commandFixture != null && commandFixture.IsLoopback)
+        {
+            string trace = (string)typeof(Dog1Training).GetProperty("DeepSeekTraceText",BindingFlags.Instance|BindingFlags.NonPublic).GetValue(trainer);
+            int separator = trace.IndexOf(Environment.NewLine + Environment.NewLine,StringComparison.Ordinal);
+            if (separator >= 0) trace = trace.Substring(0,separator);
+            if (!trace.Contains("决策来源 · 模型") || trace.Contains("模型错误 ·") || !trace.Contains("sit · 完成"))
+                Debug.Log("DOG1_XR_WAV_MODEL_DIAGNOSTIC " + trace);
+            Require(trace.Contains("决策来源 · 模型") && !trace.Contains("模型错误 ·") && trace.Contains("sit · 完成"),
+                "fixed WAV reached a successful canonical model sit without request error");
+        }
         Click(trainer,ray,"故事");yield return null;
         Call(trainer,"BuildHeadsetPage");Call(trainer,"RefreshHeadsetText");yield return null;
         var render=new RenderTexture(1440,1100,24);rig.HeadCamera.targetTexture=render;rig.HeadCamera.Render();
@@ -151,7 +170,7 @@ public static class Dog1HeadsetValidation
             Set(trainer, "sessionKey", "");
             Set(trainer, "apiKey", "");
         }
-        trainer.StartCoroutine((IEnumerator)Call(trainer, "Train", "看看我"));
+        Require((bool)Call(trainer, "SubmitPracticeCue", "看看我"), "explicit scene-response control accepted");
         float choiceDeadline = Time.realtimeSinceStartup + 23f;
         bool played = false;
         while ((bool)Get(trainer,"busy") && Time.realtimeSinceStartup < choiceDeadline)
